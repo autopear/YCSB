@@ -39,11 +39,16 @@ LICENSE file.
     <maven.test.skip>true</maven.test.skip>
   </properties>
   <dependencies>
-	  <dependency>
-		  <groupId>com.yahoo.ycsb</groupId>
-		  <artifactId>core</artifactId>
-		  <version>${project.version}</version>
-		  <scope>provided</scope>
+    <dependency>
+      <groupId>com.yahoo.ycsb</groupId>
+      <artifactId>core</artifactId>
+      <version>${project.version}</version>
+      <scope>provided</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.apache.httpcomponents</groupId>
+      <artifactId>httpclient</artifactId>
+      <version>4.5.5</version>
     </dependency>
   </dependencies>
 </project>
