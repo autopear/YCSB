@@ -39,44 +39,11 @@ public class AsterixDBClient extends DB {
   public static final String DB_URL = "db.url";
 
   private String SERVICE_URL;
+  private AsterixDBConnector conn = null;
 
   public void init() throws DBException {
     SERVICE_URL = getProperties().getProperty(DB_URL, "http://localhost:19002/query/service");
-  }
-
-  private HttpPost generatePost(final String query) throws UnsupportedEncodingException {
-    HttpPost post = new HttpPost(SERVICE_URL);
-    List<NameValuePair> params = new ArrayList<>();
-    params.add(new BasicNameValuePair("statement", query));
-    params.add(new BasicNameValuePair("mode", "immediate"));
-    post.setEntity(new UrlEncodedFormEntity(params));
-    return post;
-  }
-
-  private boolean queryWithoutResult(final String query) {
-    HttpPost post;
-    try {
-      post = generatePost(query);
-    } catch (UnsupportedEncodingException ex) {
-      return false;
-    }
-
-    CloseableHttpResponse response;
-    CloseableHttpClient client = HttpClients.createDefault();
-    try {
-      response = client.execute(post);
-    } catch (ClientProtocolException ex) {
-      return false;
-    } catch (IOException ex) {
-      return false;
-    } finally {
-      try {
-        client.close();
-      } catch (IOException ex) { }
-    }
-
-    StatusLine s = response.getStatusLine();
-    return (s.getStatusCode() == 200);
+    conn = new AsterixDBConnector(SERVICE_URL);
   }
 
   public Status scan(String table, String startkey, int recordcount, Set<String> fields,
