@@ -16,11 +16,18 @@
 package com.yahoo.ycsb.db.asterixdb;
 
 import com.yahoo.ycsb.*;
+import org.apache.commons.validator.routines.UrlValidator;
 import org.json.simple.JSONObject;
 import org.json.simple.parser.JSONParser;
 import org.json.simple.parser.ParseException;
 
+import java.io.IOException;
+import java.io.PrintWriter;
+import java.net.Socket;
+import java.net.UnknownHostException;
 import java.util.*;
+
+import static org.apache.commons.validator.routines.UrlValidator.ALLOW_LOCAL_URLS;
 
 /**
  * Client for AsterixDB.
@@ -31,6 +38,10 @@ public class AsterixDBClient extends DB {
   public static final String DB_DATAVERSE = "db.dataverse";
   public static final String DB_BATCHSIZE = "db.batchsize";
   public static final String DB_COLUMNS = "db.columns";
+  public static final String DB_UPSERT = "db.upsertenabled";
+  public static final String DB_FEEDENABLED = "db.feedenabled";
+  public static final String DB_FEEDHOST = "db.feedhost";
+  public static final String DB_FEEDPORT = "db.feedport";
 
   /** The primary key in the user table. */
   public static final String PRIMARY_KEY = "YCSB_KEY";
@@ -38,8 +49,10 @@ public class AsterixDBClient extends DB {
   /** The field name prefix in the table. */
   public static final String COLUMN_PREFIX = "field";
 
+  /** A global JSON parser. */
   private static final JSONParser PARSER = new JSONParser();
 
+  /** Array for converting bytes to Hexadecimal string. */
   private static final char[] HEX_ARRAY = "0123456789ABCDEF".toCharArray();
 
   /** URL for posting queries. */
@@ -53,6 +66,21 @@ public class AsterixDBClient extends DB {
 
   /** Number of columns in the table except the primary key. */
   private int pNumCols = 10;
+
+  /** Number of columns in the table except the primary key. */
+  private boolean pUpsert = false;
+
+  /** Whether to use SocketFeed for data ingestion. */
+  private boolean pFeedEnabled = false;
+
+  /** Hostname or IP for SocketFeed. */
+  private String pFeedHost = "";
+
+  /** Port for SocketFeed. */
+  private int pFeedPort = -1;
+
+  private Socket pFeedSock = null;
+  private PrintWriter pFeedWriter = null;
 
   private AsterixDBConnector pConn = null;
   private boolean pIsInit = false;
@@ -75,8 +103,39 @@ public class AsterixDBClient extends DB {
     pDataverse = props.getProperty(DB_DATAVERSE, "ycsb");
     pBatchSize = Long.parseLong(props.getProperty(DB_BATCHSIZE, "1"));
     pNumCols = Integer.parseInt(props.getProperty(DB_COLUMNS, "10"));
+    pUpsert = (props.getProperty(DB_UPSERT, "false").compareTo("true") == 0);
+    pFeedEnabled = (props.getProperty(DB_FEEDENABLED, "false").compareTo("true") == 0);
+    pFeedHost = props.getProperty(DB_FEEDHOST, "");
+    pFeedPort = Integer.parseInt(props.getProperty(DB_FEEDPORT, "-1"));
     for (int i=0; i<pNumCols; i++) {
       pCols.add(COLUMN_PREFIX + i);
+    }
+
+    if (pFeedEnabled) {
+      if (pFeedPort > 65535 || pFeedPort < 0) {
+        System.err.println("Invalid port " + pFeedPort + ".");
+      } else {
+        String feedURL = "http://" + pFeedHost + ":" + pFeedPort + "/";
+        String[] schemes = {"http"};
+        UrlValidator urlValidator = new UrlValidator(schemes, ALLOW_LOCAL_URLS);
+        if (urlValidator.isValid(feedURL)) {
+          try {
+            pFeedSock = new Socket(pFeedHost, pFeedPort);
+            pFeedSock.setKeepAlive(true);
+            pFeedWriter = new PrintWriter(pFeedSock.getOutputStream());
+          } catch (UnknownHostException ex) {
+            System.err.println("Invalid feed configuration " + ex.toString());
+            pFeedSock = null;
+            pFeedWriter = null;
+          } catch (IOException ex) {
+            System.err.println("Error creating SocketFeed " + ex.toString());
+            pFeedSock = null;
+            pFeedWriter = null;
+          }
+        } else {
+          System.err.println("Invalid hostname \"" + pFeedHost + "\" or invalid port " + pFeedPort + ".");
+        }
+      }
     }
 
     pConn = new AsterixDBConnector(pServiceURL);
@@ -233,26 +292,37 @@ public class AsterixDBClient extends DB {
     }
     statement += "}";
 
-    pBatchInserts.add(statement); // Add to buffer array
+    if (pFeedWriter == null) {
+      pBatchInserts.add(statement); // Add to buffer array
 
-    // Batch insertion or single insertion depending on pBatchSize
-    if (pBatchInserts.size() == pBatchSize) {
-      // Construct SQL++ query
-      String sql = "USE " + pDataverse + ";" +
-          "INSERT INTO " + table + " ([" + String.join(",", pBatchInserts) + "]);";
-      pBatchInserts.clear(); // Reset buffer array
+      // Batch insertion or single insertion depending on pBatchSize
+      if (pBatchInserts.size() == pBatchSize) {
+        // Construct SQL++ query
+        String sql = "USE " + pDataverse + ";" +
+            (pUpsert ? "UPSERT" : "INSERT") +
+            " INTO " + table + " ([" + String.join(",", pBatchInserts) + "]);";
+        pBatchInserts.clear(); // Reset buffer array
 
-      // Execute query without getting result
-      if (pConn.executeUpdate(sql)) {
-        return Status.OK;
-      } else {
-        System.err.println("Error in processing insert to table: " + table + " " + pConn.error());
+        // Execute query without getting result
+        if (pConn.executeUpdate(sql)) {
+          return Status.OK;
+        } else {
+          System.err.println("Error in processing insert to table: " + table + " " + pConn.error());
+          return Status.ERROR;
+        }
+      }
+
+      // Batching
+      return Status.BATCHED_OK;
+    } else {
+      pFeedWriter.write(statement);
+      if (pFeedWriter.checkError()) {
+        System.err.println("Error in processing insert to table: " + table);
         return Status.ERROR;
+      } else {
+        return Status.OK;
       }
     }
-
-    // Batching
-    return Status.BATCHED_OK;
   }
 
   @Override
@@ -270,7 +340,7 @@ public class AsterixDBClient extends DB {
       }
     }
 
-    // Construct SQL++ query
+    // Construct SQL++ query, use UPSERT to simulate UPDATE
     String sql = "USE " + pDataverse + ";" +
         "UPSERT INTO " + table + "(SELECT " +
         String.join(",", attributes) +
