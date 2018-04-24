@@ -16,8 +16,8 @@
  */
 
 /**
- * The YCSB binding for <a href="https://hbase.apache.org/">HBase</a> 
- * using the HBase 2.0+ shaded API.
+ * The YCSB binding for <a href="https://asterixdb.apache.org/">AsterixDB</a>
+ * using the HTTP API.
  */
-package com.yahoo.ycsb.db;
+package com.yahoo.ycsb.db.asterixdb;
 

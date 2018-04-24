@@ -1,0 +1,19 @@
+DROP DATAVERSE ycsb IF EXISTS;
+CREATE DATAVERSE ycsb;
+USE ycsb;
+
+CREATE TYPE UserType AS {
+	YCSB_KEY: string,
+	field0: binary,
+	field1: binary,
+	field2: binary,
+	field3: binary,
+	field4: binary,
+	field5: binary,
+	field6: binary,
+	field7: binary,
+	field8: binary,
+	field9: binary
+};
+
+CREATE DATASET usertable(UserType) PRIMARY KEY YCSB_KEY;

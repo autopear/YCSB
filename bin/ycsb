@@ -58,6 +58,7 @@ DATABASES = {
     "aerospike"    : "com.yahoo.ycsb.db.AerospikeClient",
     "arangodb"     : "com.yahoo.ycsb.db.ArangoDBClient",
     "arangodb3"    : "com.yahoo.ycsb.db.arangodb.ArangoDB3Client",
+    "asterixdb"   : "com.yahoo.ycsb.db.asterixdb.AsterixDBClient",
     "asynchbase"   : "com.yahoo.ycsb.db.AsyncHBaseClient",
     "azuredocumentdb"   : "com.yahoo.ycsb.db.azuredocumentdb.AzureDocumentDBClient",
     "azuretablestorage" : "com.yahoo.ycsb.db.azuretablestorage.AzureClient",

@@ -1,4 +1,4 @@
-package com.yahoo.ycsb.db;
+package com.yahoo.ycsb.db.asterixdb;
 
 import java.io.*;
 import java.util.*;
@@ -16,240 +16,254 @@ import org.apache.http.StatusLine;
 
 import static org.apache.commons.validator.routines.UrlValidator.ALLOW_LOCAL_URLS;
 
+/**
+ * Connector for AsterixDB via HTTP API.
+ */
 public class AsterixDBConnector {
-    private CloseableHttpClient __client = null;
-    private String __serviceUrl = "";
-    private boolean __isValid = false;
-    private String __error;
-    private boolean __beginResults = false;
-    private long __elapsed = 0;
-    private CloseableHttpResponse __response = null;
-    private InputStream __stream = null;
-    private InputStreamReader __streamReader = null;
-    private BufferedReader __bufferReader = null;
+  private CloseableHttpClient pClient = null;
+  private String pServiceUrl = "";
+  private boolean pIsValid = false;
+  private String pError;
+  private boolean pBeginResults = false;
+  private long pElapsed = 0;
+  private CloseableHttpResponse pResponse = null;
+  private InputStream pStream = null;
+  private InputStreamReader pStreamReader = null;
+  private BufferedReader pBufferReader = null;
 
-    public AsterixDBConnector(final String hostname, int port) {
-        __serviceUrl = "http://" + hostname + ":" + port + "/query/service";
-        String[] schemes = {"http"};
-        UrlValidator urlValidator = new UrlValidator(schemes, ALLOW_LOCAL_URLS);
-        __isValid = urlValidator.isValid(__serviceUrl);
-        if (__isValid)
-            __client = HttpClients.createDefault();
+  public AsterixDBConnector(final String hostname, int port) {
+    pServiceUrl = "http://" + hostname + ":" + port + "/query/service";
+    String[] schemes = {"http"};
+    UrlValidator urlValidator = new UrlValidator(schemes, ALLOW_LOCAL_URLS);
+    pIsValid = urlValidator.isValid(pServiceUrl);
+    if (pIsValid) {
+      pClient = HttpClients.createDefault();
+    }
+  }
+
+  public AsterixDBConnector(final String serviceUrl) {
+    pServiceUrl = serviceUrl;
+    String[] schemes = {"http", "https"};
+    UrlValidator urlValidator = new UrlValidator(schemes, ALLOW_LOCAL_URLS);
+    pIsValid = urlValidator.isValid(pServiceUrl);
+    if (pIsValid) {
+      pClient = HttpClients.createDefault();
+    }
+  }
+
+  public boolean isValid() {
+    return pIsValid;
+  }
+
+  public boolean hasError() {
+    return !pError.isEmpty();
+  }
+
+  public String error() {
+    return pError;
+  }
+
+  public long elapsedTime() {
+    return pElapsed;
+  }
+
+  public boolean executeUpdate(final String sql) {
+    if (pResponse != null) {
+      pError = "Another statement is running.";
+      return false;
     }
 
-    public AsterixDBConnector(final String serviceUrl) {
-        String[] schemes = {"http", "https"};
-        UrlValidator urlValidator = new UrlValidator(schemes, ALLOW_LOCAL_URLS);
-        __isValid = urlValidator.isValid(__serviceUrl);
-        if (__isValid)
-            __client = HttpClients.createDefault();
+    pError = "";
+
+    HttpPost post = new HttpPost(pServiceUrl);
+    post.setHeader("Content-Type", "application/x-www-form-urlencoded");
+
+    List<NameValuePair> params = new ArrayList<>();
+    params.add(new BasicNameValuePair("statement", sql));
+    params.add(new BasicNameValuePair("mode", "immediate"));
+    try {
+      post.setEntity(new UrlEncodedFormEntity(params));
+    } catch (UnsupportedEncodingException ex) {
+      pError = ex.toString();
+      return false;
     }
 
-    public boolean isValid() {
-        return __isValid;
+    long startTime = System.currentTimeMillis();
+
+    try {
+      pResponse = pClient.execute(post);
+      pElapsed = System.currentTimeMillis() - startTime;
+    } catch (ClientProtocolException ex) {
+      pError = ex.toString();
+      closeResponse();
+      return false;
+    } catch (IOException ex) {
+      pError = ex.toString();
+      closeResponse();
+      return false;
     }
 
-    public boolean hasError() {
-        return !__error.isEmpty();
+    StatusLine s = pResponse.getStatusLine();
+    if (s.getStatusCode() == 200) {
+      pError = "";
+      closeResponse();
+      return true;
+    } else {
+      pError = s.getReasonPhrase();
+      closeResponse();
+      return false;
+    }
+  }
+
+  public boolean execute(final String sql) {
+    if (pResponse != null) {
+      pError = "Another statement is running.";
+      return false;
     }
 
-    public String error() {
-        return __error;
+    pError = "";
+
+    HttpPost post = new HttpPost(pServiceUrl);
+    post.setHeader("Content-Type", "application/x-www-form-urlencoded");
+
+    List<NameValuePair> params = new ArrayList<>();
+    params.add(new BasicNameValuePair("statement", sql));
+    params.add(new BasicNameValuePair("mode", "immediate"));
+    try {
+      post.setEntity(new UrlEncodedFormEntity(params));
+    } catch (UnsupportedEncodingException ex) {
+      pError = ex.toString();
+      return false;
     }
 
-    public long elapsedTime() {
-        return __elapsed;
+    long startTime = System.currentTimeMillis();
+
+    try {
+      pResponse = pClient.execute(post);
+      pElapsed = System.currentTimeMillis() - startTime;
+    } catch (ClientProtocolException ex) {
+      pError = ex.toString();
+      closeResponse();
+      return false;
+    } catch (IOException ex) {
+      pError = ex.toString();
+      closeResponse();
+      return false;
     }
 
-    public boolean executeUpdate(final String sql) {
-        if (__response != null) {
-            __error = "Another statement is running.";
-            return false;
-        }
+    StatusLine s = pResponse.getStatusLine();
+    if (s.getStatusCode() == 200) {
+      try {
+        pStream = pResponse.getEntity().getContent();
+      } catch (IOException ex) {
+        pError = ex.toString();
+        closeResponse();
+        return false;
+      }
 
-        __error = "";
+      try {
+        pStreamReader = new InputStreamReader(pStream, "UTF-8");
+        pBufferReader = new BufferedReader(pStreamReader);
+        pBeginResults = false;
+      } catch (UnsupportedEncodingException ex) {
+        pError = ex.toString();
+        closeResponse();
+        return false;
+      }
 
-        HttpPost post = new HttpPost(__serviceUrl);
-        post.setHeader("Content-Type", "application/x-www-form-urlencoded");
+      pError = "";
+      return true;
+    } else {
+      pError = s.getReasonPhrase();
+      closeResponse();
+      return false;
+    }
+  }
 
-        List<NameValuePair> params = new ArrayList<>();
-        params.add(new BasicNameValuePair("statement", sql));
-        params.add(new BasicNameValuePair("mode", "immediate"));
-        try {
-            post.setEntity(new UrlEncodedFormEntity(params));
-        } catch (UnsupportedEncodingException ex) {
-            __error = ex.toString();
-            return false;
-        }
-
-        long startTime = System.currentTimeMillis();
-
-        try {
-            __response = __client.execute(post);
-            __elapsed = System.currentTimeMillis() - startTime;
-        } catch (ClientProtocolException ex) {
-            __error = ex.toString();
-            closeResponse();
-            return false;
-        } catch (IOException ex) {
-            __error = ex.toString();
-            closeResponse();
-            return false;
-        }
-
-        StatusLine s = __response.getStatusLine();
-        if (s.getStatusCode() == 200) {
-            __error = "";
-            closeResponse();
-            return true;
+  public String nextResult() {
+    if (pBufferReader == null) {
+      pError = "No statement executed.";
+      return "";
+    }
+    try {
+      String line;
+      while ((line = pBufferReader.readLine()) != null) {
+        line = line.replaceAll("[\r\n]]", "").trim();
+        if (!pBeginResults) {
+          if (line.startsWith("\"results\": ")) {
+            pBeginResults = true;
+            pError = "";
+            line = line.substring(12);
+            if (line.endsWith(",")) {
+              line = line.substring(0, line.length() - 2);
+            }
+            return line.trim();
+          } else {
+            continue;
+          }
         } else {
-            __error = s.getReasonPhrase();
-            closeResponse();
-            return false;
-        }
-    }
-
-    public boolean execute(final String sql) {
-        if (__response != null) {
-            __error = "Another statement is running.";
-            return false;
-        }
-
-        __error = "";
-
-        HttpPost post = new HttpPost(__serviceUrl);
-        post.setHeader("Content-Type", "application/x-www-form-urlencoded");
-
-        List<NameValuePair> params = new ArrayList<>();
-        params.add(new BasicNameValuePair("statement", sql));
-        params.add(new BasicNameValuePair("mode", "immediate"));
-        try {
-            post.setEntity(new UrlEncodedFormEntity(params));
-        } catch (UnsupportedEncodingException ex) {
-            __error = ex.toString();
-            return false;
-        }
-
-        long startTime = System.currentTimeMillis();
-
-        try {
-            __response = __client.execute(post);
-            __elapsed = System.currentTimeMillis() - startTime;
-        } catch (ClientProtocolException ex) {
-            __error = ex.toString();
-            closeResponse();
-            return false;
-        } catch (IOException ex) {
-            __error = ex.toString();
-            closeResponse();
-            return false;
-        }
-
-        StatusLine s = __response.getStatusLine();
-        if (s.getStatusCode() == 200) {
-            try {
-                __stream = __response.getEntity().getContent();
-            } catch (IOException ex) {
-                __error = ex.toString();
-                closeResponse();
-                return false;
-            }
-
-            try {
-                __streamReader = new InputStreamReader(__stream, "UTF-8");
-                __bufferReader = new BufferedReader(__streamReader);
-                __beginResults = false;
-            } catch (UnsupportedEncodingException ex) {
-                __error = ex.toString();
-                closeResponse();
-                return false;
-            }
-
-            __error = "";
-            return true;
-        } else {
-            __error = s.getReasonPhrase();
-            closeResponse();
-            return false;
-        }
-    }
-
-    public String nextResult() {
-        if (__bufferReader == null) {
-            __error = "No statement executed.";
-            return "";
-        }
-        try {
-            String line;
-            while ((line = __bufferReader.readLine()) != null) {
-                line = line.replaceAll("[\r\n]]", "").trim();
-                if (!__beginResults) {
-                    if (line.startsWith("\"results\": ")) {
-                        __beginResults = true;
-                        __error = "";
-                        line = line.substring(12);
-                        if (line.endsWith(","))
-                            line = line.substring(0, line.length()-2);
-                        return line.trim();
-                    } else
-                        continue;
-                } else {
-                    if (line.compareTo("]") == 0) {
-                        __error = "";
-                        __beginResults = false;
-                        closeResponse();
-                        return "";
-                    } else {
-                        __error = "";
-                        if (line.startsWith(","))
-                            line = line.substring(1);
-                        if (line.endsWith(","))
-                            line = line.substring(0, line.length()-2);
-                        return line.trim();
-                    }
-                }
-            }
-            __error = "";
+          if (line.compareTo("]") == 0) {
+            pError = "";
+            pBeginResults = false;
             closeResponse();
             return "";
-        } catch (IOException ex) {
-            __error = ex.toString();
-            closeResponse();
-            return "";
+          } else {
+            pError = "";
+            if (line.startsWith(",")) {
+              line = line.substring(1);
+            }
+            if (line.endsWith(",")) {
+              line = line.substring(0, line.length() - 2);
+            }
+            return line.trim();
+          }
         }
+      }
+      pError = "";
+      closeResponse();
+      return "";
+    } catch (IOException ex) {
+      pError = ex.toString();
+      closeResponse();
+      return "";
+    }
+  }
+
+  private void closeResponse() {
+    if (pBufferReader != null) {
+      try {
+        pBufferReader.close();
+      } catch (IOException ex) {
+        // pass
+      }
+      pBufferReader = null;
     }
 
-    private void closeResponse() {
-        if (__bufferReader != null) {
-            try {
-                __bufferReader.close();
-            } catch (IOException ex) {
-            }
-            __bufferReader = null;
-        }
-
-        if (__streamReader != null) {
-            try {
-                __streamReader.close();
-            } catch (IOException ex) {
-            }
-            __streamReader = null;
-        }
-
-        if (__stream != null) {
-            try {
-                __stream.close();
-            } catch (IOException ex) {
-            }
-            __stream = null;
-        }
-
-        if (__response != null) {
-            try {
-                __response.close();
-            } catch (IOException ex) {
-            }
-            __response = null;
-        }
+    if (pStreamReader != null) {
+      try {
+        pStreamReader.close();
+      } catch (IOException ex) {
+        // pass
+      }
+      pStreamReader = null;
     }
+
+    if (pStream != null) {
+      try {
+        pStream.close();
+      } catch (IOException ex) {
+        // pass
+      }
+      pStream = null;
+    }
+
+    if (pResponse != null) {
+      try {
+        pResponse.close();
+      } catch (IOException ex) {
+        // pass
+      }
+      pResponse = null;
+    }
+  }
 }

@@ -16,3 +16,11 @@ LICENSE file.
 -->
 
 # AsterixDB for YCSB
+
+Compile: mvn clean package -DskipTests
+
+Create Table: [create-table.sqlpp](src/main/conf/create-table.sqlpp)
+
+Load: bin/ycsb load asterixdb -P workloads/workloada -P asterixdb/src/main/conf/db.properties
+
+Test: bin/ycsb run asterixdb -P workloads/workloada -P asterixdb/src/main/conf/db.properties
