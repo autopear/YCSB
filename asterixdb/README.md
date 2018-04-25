@@ -55,10 +55,11 @@ Following options can be configurable using `-p`, an example can be found at [db
 * `db.url`: URL for querying AsterixDB's HTTP API. More details can be found at [HTTP API to AsterixDB
 ](https://ci.apache.org/projects/asterixdb/api.html).
 * `db.dataverse`: Name of the dataverse.
+* `db.dataset`: Name of the dataset.
 * `db.columns`: The number of columns/fields in the dataset, excluding the primary key. The name of each column/field is "fieldX", where X is a number starting from 0.
 * `db.batchsize`: The number of records to be batched for INSERT or UPSERT. This option will be disabled if feed is used.
 * `db.upsertenabled`: If set to true, UPSERT will be used instead of INSERT. This option will be disabled if feed is used.
 * `db.feedenabled`: If set to true, socket feed will be used for insertion. Whether it is an upsert feed or not depending on the creating of the feed.
 * `db.feedhost`: Hostname or IP of the socket feed.
 * `db.feedport`: Port of the socket feed.
-* `db.printcmd`: If set to true, each SQL++ statement will be printed. For a feed insertion, the content of the data package will be printed as a JSON object.
+* `printcmd`: If set to true, each SQL++ statement will be printed. For a feed insertion, the content of the data package will be printed as a JSON object.

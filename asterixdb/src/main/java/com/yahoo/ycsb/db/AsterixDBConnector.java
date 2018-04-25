@@ -29,7 +29,7 @@ public class AsterixDBConnector {
   private CloseableHttpResponse pResponse = null;
   private InputStream pStream = null;
   private InputStreamReader pStreamReader = null;
-  private BufferedReader pBufferReader = null;
+  private BufferedReader pBufferedReader = null;
 
   public AsterixDBConnector(final String hostname, int port) {
     pServiceUrl = "http://" + hostname + ":" + port + "/query/service";
@@ -65,6 +65,41 @@ public class AsterixDBConnector {
 
   public long elapsedTime() {
     return pElapsed;
+  }
+
+  private String getServerError() {
+    if (pResponse == null) {
+      return "";
+    }
+
+    try {
+      pStream = pResponse.getEntity().getContent();
+    } catch (IOException ex) {
+      return ex.toString();
+    }
+
+    try {
+      pStreamReader = new InputStreamReader(pStream, "UTF-8");
+      pBufferedReader = new BufferedReader(pStreamReader);
+    } catch (UnsupportedEncodingException ex) {
+      return ex.toString();
+    }
+
+    try {
+      String line;
+      while ((line = pBufferedReader.readLine()) != null) {
+        line = line.replaceAll("[\r\n]]", "").trim();
+        if (line.startsWith("\"msg\": ")) {
+          line = line.substring(8);
+          line = line.substring(0, line.length()-2);
+          return line.trim();
+        }
+      }
+    } catch (IOException ex) {
+      return ex.toString();
+    }
+
+    return "Unknown error.";
   }
 
   public boolean executeUpdate(final String sql) {
@@ -109,7 +144,7 @@ public class AsterixDBConnector {
       closeResponse();
       return true;
     } else {
-      pError = s.getReasonPhrase();
+      pError = getServerError();
       closeResponse();
       return false;
     }
@@ -163,7 +198,7 @@ public class AsterixDBConnector {
 
       try {
         pStreamReader = new InputStreamReader(pStream, "UTF-8");
-        pBufferReader = new BufferedReader(pStreamReader);
+        pBufferedReader = new BufferedReader(pStreamReader);
         pBeginResults = false;
       } catch (UnsupportedEncodingException ex) {
         pError = ex.toString();
@@ -174,20 +209,20 @@ public class AsterixDBConnector {
       pError = "";
       return true;
     } else {
-      pError = s.getReasonPhrase();
+      pError = getServerError();
       closeResponse();
       return false;
     }
   }
 
   public String nextResult() {
-    if (pBufferReader == null) {
+    if (pBufferedReader == null) {
       pError = "No statement executed.";
       return "";
     }
     try {
       String line;
-      while ((line = pBufferReader.readLine()) != null) {
+      while ((line = pBufferedReader.readLine()) != null) {
         line = line.replaceAll("[\r\n]]", "").trim();
         if (!pBeginResults) {
           if (line.startsWith("\"results\": ")) {
@@ -230,13 +265,13 @@ public class AsterixDBConnector {
   }
 
   private void closeResponse() {
-    if (pBufferReader != null) {
+    if (pBufferedReader != null) {
       try {
-        pBufferReader.close();
+        pBufferedReader.close();
       } catch (IOException ex) {
         // pass
       }
-      pBufferReader = null;
+      pBufferedReader = null;
     }
 
     if (pStreamReader != null) {
