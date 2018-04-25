@@ -34,7 +34,7 @@ mvn clean package -DskipTests
 ```
 
 ### 3. Create a AsterixDB dataset for testing
-Please refer to the example in [src/main/conf/create-table-feed.sqlpp](src/main/conf/create-table-feed.sqlpp). Note if you modify the dataverse name, the number of columns, or any parameter for the feed in (src/main/conf/db.properties)[src/main/conf/db.properties], you must change the SQL++ command accordingly.
+Please refer to the example in [create-table-feed.sqlpp](src/main/conf/create-table-feed.sqlpp). Note if you modify the dataverse name, the number of columns, or any parameter for the feed in [db.properties](src/main/conf/db.properties), you must change the SQL++ command accordingly.
 
 ### 4. Run the Workload
 Before you can actually run the workload, you need to "load" the data first.
@@ -50,5 +50,15 @@ bin/ycsb run asterixdb -P workloads/workloada -P asterixdb/src/main/conf/db.prop
 ```
 
 ## Configuration Options
-Following options can be configurable using `-p`.
-To do...
+Following options can be configurable using `-p`, an example can be found at [db.properties](src/main/conf/db.properties)
+
+* `db.url`: URL for querying AsterixDB's HTTP API. More details can be found at [HTTP API to AsterixDB
+](https://ci.apache.org/projects/asterixdb/api.html).
+* `db.dataverse`: Name of the dataverse.
+* `db.columns`: The number of columns/fields in the dataset, excluding the primary key. The name of each column/field is "fieldX", where X is a number starting from 0.
+* `db.batchsize`: The number of records to be batched for INSERT or UPSERT. This option will be disabled if feed is used.
+* `db.upsertenabled`: If set to true, UPSERT will be used instead of INSERT. This option will be disabled if feed is used.
+* `db.feedenabled`: If set to true, socket feed will be used for insertion. Whether it is an upsert feed or not depending on the creating of the feed.
+* `db.feedhost`: Hostname or IP of the socket feed.
+* `db.feedport`: Port of the socket feed.
+* `db.printcmd`: If set to true, each SQL++ statement will be printed. For a feed insertion, the content of the data package will be printed as a JSON object.
