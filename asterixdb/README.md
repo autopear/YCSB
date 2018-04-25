@@ -16,7 +16,7 @@ LICENSE file.
 -->
 
 # AsterixDB for YCSB
-This driver is a binfing for the This driver is a binding for the YCSB facilities to operate against a AsterixDB Server cluster. Tested on version 0.9.4.
+This driver is a binding for the YCSB facilities to operate against a AsterixDB Server cluster. Tested on version 0.9.4.
 
 ## Quickstart
 
