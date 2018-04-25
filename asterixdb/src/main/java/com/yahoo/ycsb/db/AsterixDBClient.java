@@ -42,6 +42,7 @@ public class AsterixDBClient extends DB {
   public static final String DB_FEEDENABLED = "db.feedenabled";
   public static final String DB_FEEDHOST = "db.feedhost";
   public static final String DB_FEEDPORT = "db.feedport";
+  public static final String DB_PRINTCMD = "db.printcmd";
 
   /** The primary key in the user table. */
   public static final String PRIMARY_KEY = "YCSB_KEY";
@@ -79,6 +80,9 @@ public class AsterixDBClient extends DB {
   /** Port for SocketFeed. */
   private int pFeedPort = -1;
 
+  /** Print SQL++ command. */
+  private boolean pPrintCmd = false;
+
   private Socket pFeedSock = null;
   private PrintWriter pFeedWriter = null;
 
@@ -107,7 +111,8 @@ public class AsterixDBClient extends DB {
     pFeedEnabled = (props.getProperty(DB_FEEDENABLED, "false").compareTo("true") == 0);
     pFeedHost = props.getProperty(DB_FEEDHOST, "");
     pFeedPort = Integer.parseInt(props.getProperty(DB_FEEDPORT, "-1"));
-    for (int i=0; i<pNumCols; i++) {
+    pPrintCmd = (props.getProperty(DB_PRINTCMD, "false").compareTo("true") == 0);
+    for (int i = 0; i < pNumCols; i++) {
       pCols.add(COLUMN_PREFIX + i);
     }
 
@@ -154,7 +159,7 @@ public class AsterixDBClient extends DB {
   private static String bytesToHex(final ByteIterator data) {
     byte[] bytes = data.toArray();
     char[] hexChars = new char[bytes.length * 2];
-    for (int j=0; j<bytes.length; j++) {
+    for (int j = 0; j < bytes.length; j++) {
       int v = bytes[j] & 0xFF;
       hexChars[j * 2] = HEX_ARRAY[v >>> 4];
       hexChars[j * 2 + 1] = HEX_ARRAY[v & 0x0F];
@@ -170,6 +175,10 @@ public class AsterixDBClient extends DB {
         " FROM " + table +
         " WHERE " + PRIMARY_KEY + "='" + escapeString(key) + "';";
 
+    if (pPrintCmd) {
+      System.out.println("READ: " + sql);
+    }
+
     // Execute query and wait to get result
     if (pConn.execute(sql)) {
       boolean hasError = false;
@@ -183,7 +192,7 @@ public class AsterixDBClient extends DB {
           // Each record in the result must be in the format of a JSON object
           if (line.startsWith("{") && line.endsWith("}")) {
             try {
-              JSONObject record = (JSONObject)(PARSER.parse(line)); // Parse to JSON object to get value for given key
+              JSONObject record = (JSONObject) (PARSER.parse(line)); // Parse to JSON object to get value for given key
               if (result != null) {
                 for (String col : (fields == null ? pCols : fields)) {
                   result.put(col, new StringByteIterator(record.get(col).toString()));
@@ -214,13 +223,17 @@ public class AsterixDBClient extends DB {
 
   @Override
   public Status scan(String table, String startkey, int recordcount, Set<String> fields,
-      Vector<HashMap<String, ByteIterator>> result) {
+                     Vector<HashMap<String, ByteIterator>> result) {
     // Construct SQL++ query
     String sql = "USE " + pDataverse + ";" +
         "SELECT " + PRIMARY_KEY + "," + String.join(",", (fields == null ? pCols : fields)) +
         " FROM " + table +
         " WHERE " + PRIMARY_KEY + ">='" + escapeString(startkey) + "'" +
         " ORDER BY " + PRIMARY_KEY + " LIMIT " + recordcount + ";";
+
+    if (pPrintCmd) {
+      System.out.println("SCAN: " + sql);
+    }
 
     // Execute query and wait to get result
     if (pConn.execute(sql)) {
@@ -235,7 +248,7 @@ public class AsterixDBClient extends DB {
           // Each record in the result must be in the format of a JSON object
           if (line.startsWith("{") && line.endsWith("}")) {
             try {
-              JSONObject record = (JSONObject)(PARSER.parse(line)); // Parse to JSON object to get value for given key
+              JSONObject record = (JSONObject) (PARSER.parse(line)); // Parse to JSON object to get value for given key
               if (result != null) {
                 HashMap<String, ByteIterator> oneResult = new HashMap<>();
                 for (String col : (fields == null ? pCols : fields)) {
@@ -272,6 +285,10 @@ public class AsterixDBClient extends DB {
     String sql = "USE " + pDataverse + ";" +
         "DELETE FROM " + table + " WHERE " + PRIMARY_KEY + "='" + escapeString(key) + "';";
 
+    if (pPrintCmd) {
+      System.out.println("DELETE: " + sql);
+    }
+
     // Execute query without getting result
     if (pConn.executeUpdate(sql)) {
       return Status.OK;
@@ -303,6 +320,10 @@ public class AsterixDBClient extends DB {
             " INTO " + table + " ([" + String.join(",", pBatchInserts) + "]);";
         pBatchInserts.clear(); // Reset buffer array
 
+        if (pPrintCmd) {
+          System.out.println("INSERT: " + sql);
+        }
+
         // Execute query without getting result
         if (pConn.executeUpdate(sql)) {
           return Status.OK;
@@ -315,6 +336,10 @@ public class AsterixDBClient extends DB {
       // Batching
       return Status.BATCHED_OK;
     } else {
+      if (pPrintCmd) {
+        System.out.println("INSERT: " + statement);
+      }
+
       pFeedWriter.write(statement);
       if (pFeedWriter.checkError()) {
         System.err.println("Error in processing insert to table: " + table);
@@ -342,10 +367,14 @@ public class AsterixDBClient extends DB {
 
     // Construct SQL++ query, use UPSERT to simulate UPDATE
     String sql = "USE " + pDataverse + ";" +
-        "UPSERT INTO " + table + "(SELECT " +
+        "UPSERT INTO " + table + " (SELECT " +
         String.join(",", attributes) +
         " FROM " + table + " WHERE " + PRIMARY_KEY + "='" + escapeString(key) + "'" +
         ");";
+
+    if (pPrintCmd) {
+      System.out.println("UPDATE: " + sql);
+    }
 
     // Execute query without getting result
     if (pConn.executeUpdate(sql)) {
@@ -353,6 +382,19 @@ public class AsterixDBClient extends DB {
     } else {
       System.err.println("Error in processing update to table: " + table + " " + pConn.error());
       return Status.ERROR;
+    }
+  }
+
+  @Override
+  public void cleanup() throws DBException {
+    if (pFeedWriter != null) {
+      pFeedWriter.flush();
+      pFeedWriter.close();
+      try {
+        pFeedSock.close();
+      } catch (IOException ex) {
+        // pass
+      }
     }
   }
 

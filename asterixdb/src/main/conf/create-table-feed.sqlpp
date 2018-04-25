@@ -29,3 +29,7 @@ CREATE FEED userfeed WITH {
 CONNECT FEED userfeed TO DATASET usertable;
 
 START FEED userfeed;
+
+STOP FEED userfeed;
+
+DISCONNECT FEED userfeed FROM DATASET usertable;
