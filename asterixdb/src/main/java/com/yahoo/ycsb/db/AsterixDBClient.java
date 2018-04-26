@@ -109,7 +109,7 @@ public class AsterixDBClient extends DB {
     Properties props = getProperties();
     pServiceURL = props.getProperty(DB_URL, "http://localhost:19002/query/service");
     pDataverse = props.getProperty(DB_DATAVERSE, "ycsb");
-    pDataset = props.getProperty(DB_DATASET, "usertable");
+    pDataset = props.getProperty(DB_DATASET, "");
     pBatchSize = Long.parseLong(props.getProperty(DB_BATCHSIZE, "1"));
     pNumCols = Integer.parseInt(props.getProperty(DB_COLUMNS, "10"));
     pUpsert = (props.getProperty(DB_UPSERT, "false").compareTo("true") == 0);
@@ -174,10 +174,12 @@ public class AsterixDBClient extends DB {
 
   @Override
   public Status read(String table, String key, Set<String> fields, Map<String, ByteIterator> result) {
+    String actualTable = pDataset.isEmpty() ? table : pDataset;
+
     // Construct SQL++ query
     String sql = "USE " + pDataverse + ";" +
         "SELECT " + PRIMARY_KEY + "," + String.join(",", (fields == null ? pCols : fields)) +
-        " FROM " + pDataset +
+        " FROM " + actualTable +
         " WHERE " + PRIMARY_KEY + "='" + escapeString(key) + "';";
 
     if (pPrintCmd) {
@@ -215,13 +217,13 @@ public class AsterixDBClient extends DB {
         // We continue to get lines from the HTTP response, this ensures closing internal buffers correctly
       }
       if (hasError) {
-        System.err.println("Error in processing read from table: " + pDataset + " " + err);
+        System.err.println("Error in processing read from table: " + actualTable + " " + err);
         return Status.ERROR;
       } else {
         return Status.OK;
       }
     } else {
-      System.err.println("Error in processing read to table: " + pDataset + " " + pConn.error());
+      System.err.println("Error in processing read to table: " + actualTable + " " + pConn.error());
       return Status.ERROR;
     }
   }
@@ -229,10 +231,12 @@ public class AsterixDBClient extends DB {
   @Override
   public Status scan(String table, String startkey, int recordcount, Set<String> fields,
                      Vector<HashMap<String, ByteIterator>> result) {
+    String actualTable = pDataset.isEmpty() ? table : pDataset;
+
     // Construct SQL++ query
     String sql = "USE " + pDataverse + ";" +
         "SELECT " + PRIMARY_KEY + "," + String.join(",", (fields == null ? pCols : fields)) +
-        " FROM " + pDataset +
+        " FROM " + actualTable +
         " WHERE " + PRIMARY_KEY + ">='" + escapeString(startkey) + "'" +
         " ORDER BY " + PRIMARY_KEY + " LIMIT " + recordcount + ";";
 
@@ -273,22 +277,24 @@ public class AsterixDBClient extends DB {
         // We continue to get lines from the HTTP response, this ensures closing internal buffers correctly
       }
       if (hasError) {
-        System.err.println("Error in processing read from table: " + pDataset + " " + err);
+        System.err.println("Error in processing read from table: " + actualTable + " " + err);
         return Status.ERROR;
       } else {
         return Status.OK;
       }
     } else {
-      System.err.println("Error in processing scan to table: " + pDataset + " " + pConn.error());
+      System.err.println("Error in processing scan to table: " + actualTable + " " + pConn.error());
       return Status.ERROR;
     }
   }
 
   @Override
   public Status delete(String table, String key) {
+    String actualTable = pDataset.isEmpty() ? table : pDataset;
+
     // Construct SQL++ query
     String sql = "USE " + pDataverse + ";" +
-        "DELETE FROM " + pDataset + " WHERE " + PRIMARY_KEY + "='" + escapeString(key) + "';";
+        "DELETE FROM " + actualTable + " WHERE " + PRIMARY_KEY + "='" + escapeString(key) + "';";
 
     if (pPrintCmd) {
       System.out.println("DELETE: " + sql);
@@ -298,7 +304,7 @@ public class AsterixDBClient extends DB {
     if (pConn.executeUpdate(sql)) {
       return Status.OK;
     } else {
-      System.err.println("Error in processing delete from table: " + pDataset + " " + pConn.error());
+      System.err.println("Error in processing delete from table: " + actualTable + " " + pConn.error());
       return Status.ERROR;
     }
   }
@@ -315,6 +321,8 @@ public class AsterixDBClient extends DB {
     statement += "}";
 
     if (pFeedWriter == null) {
+      String actualTable = pDataset.isEmpty() ? table : pDataset;
+
       pBatchInserts.add(statement); // Add to buffer array
 
       // Batch insertion or single insertion depending on pBatchSize
@@ -322,7 +330,7 @@ public class AsterixDBClient extends DB {
         // Construct SQL++ query
         String sql = "USE " + pDataverse + ";" +
             (pUpsert ? "UPSERT" : "INSERT") +
-            " INTO " + pDataset + " ([" + String.join(",", pBatchInserts) + "]);";
+            " INTO " + actualTable + " ([" + String.join(",", pBatchInserts) + "]);";
         pBatchInserts.clear(); // Reset buffer array
 
         if (pPrintCmd) {
@@ -333,7 +341,7 @@ public class AsterixDBClient extends DB {
         if (pConn.executeUpdate(sql)) {
           return Status.OK;
         } else {
-          System.err.println("Error in processing insert to table: " + pDataset + " " + pConn.error());
+          System.err.println("Error in processing insert to table: " + actualTable + " " + pConn.error());
           return Status.ERROR;
         }
       }
@@ -347,7 +355,7 @@ public class AsterixDBClient extends DB {
 
       pFeedWriter.write(statement);
       if (pFeedWriter.checkError()) {
-        System.err.println("Error in processing insert to table: " + pDataset);
+        System.err.println("Error in processing insert to table: " + (pDataset.isEmpty() ? table : pDataset));
         return Status.ERROR;
       } else {
         return Status.OK;
@@ -370,11 +378,13 @@ public class AsterixDBClient extends DB {
       }
     }
 
+    String actualTable = pDataset.isEmpty() ? table : pDataset;
+
     // Construct SQL++ query, use UPSERT to simulate UPDATE
     String sql = "USE " + pDataverse + ";" +
-        "UPSERT INTO " + pDataset + " (SELECT " +
+        "UPSERT INTO " + actualTable + " (SELECT " +
         String.join(",", attributes) +
-        " FROM " + pDataset + " WHERE " + PRIMARY_KEY + "='" + escapeString(key) + "'" +
+        " FROM " + actualTable + " WHERE " + PRIMARY_KEY + "='" + escapeString(key) + "'" +
         ");";
 
     if (pPrintCmd) {
@@ -385,7 +395,7 @@ public class AsterixDBClient extends DB {
     if (pConn.executeUpdate(sql)) {
       return Status.OK;
     } else {
-      System.err.println("Error in processing update to table: " + pDataset + " " + pConn.error());
+      System.err.println("Error in processing update to table: " + actualTable + " " + pConn.error());
       return Status.ERROR;
     }
   }
