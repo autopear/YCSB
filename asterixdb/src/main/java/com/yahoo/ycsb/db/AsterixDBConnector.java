@@ -130,22 +130,22 @@ public class AsterixDBConnector {
       pElapsed = System.currentTimeMillis() - startTime;
     } catch (ClientProtocolException ex) {
       pError = ex.toString();
-      closeResponse();
+      closeCurrentResponse();
       return false;
     } catch (IOException ex) {
       pError = ex.toString();
-      closeResponse();
+      closeCurrentResponse();
       return false;
     }
 
     StatusLine s = pResponse.getStatusLine();
     if (s.getStatusCode() == 200) {
       pError = "";
-      closeResponse();
+      closeCurrentResponse();
       return true;
     } else {
       pError = getServerError();
-      closeResponse();
+      closeCurrentResponse();
       return false;
     }
   }
@@ -178,11 +178,11 @@ public class AsterixDBConnector {
       pElapsed = System.currentTimeMillis() - startTime;
     } catch (ClientProtocolException ex) {
       pError = ex.toString();
-      closeResponse();
+      closeCurrentResponse();
       return false;
     } catch (IOException ex) {
       pError = ex.toString();
-      closeResponse();
+      closeCurrentResponse();
       return false;
     }
 
@@ -192,7 +192,7 @@ public class AsterixDBConnector {
         pStream = pResponse.getEntity().getContent();
       } catch (IOException ex) {
         pError = ex.toString();
-        closeResponse();
+        closeCurrentResponse();
         return false;
       }
 
@@ -202,7 +202,7 @@ public class AsterixDBConnector {
         pBeginResults = false;
       } catch (UnsupportedEncodingException ex) {
         pError = ex.toString();
-        closeResponse();
+        closeCurrentResponse();
         return false;
       }
 
@@ -210,7 +210,7 @@ public class AsterixDBConnector {
       return true;
     } else {
       pError = getServerError();
-      closeResponse();
+      closeCurrentResponse();
       return false;
     }
   }
@@ -232,7 +232,14 @@ public class AsterixDBConnector {
             if (line.endsWith(",")) {
               line = line.substring(0, line.length() - 2);
             }
-            return line.trim();
+            line = line.trim();
+            if (line.compareTo("]") == 0) {
+              pError = "";
+              pBeginResults = false;
+              closeCurrentResponse();
+              return "";
+            }
+            return line;
           } else {
             continue;
           }
@@ -240,7 +247,7 @@ public class AsterixDBConnector {
           if (line.compareTo("]") == 0) {
             pError = "";
             pBeginResults = false;
-            closeResponse();
+            closeCurrentResponse();
             return "";
           } else {
             pError = "";
@@ -255,16 +262,32 @@ public class AsterixDBConnector {
         }
       }
       pError = "";
-      closeResponse();
+      closeCurrentResponse();
       return "";
     } catch (IOException ex) {
       pError = ex.toString();
-      closeResponse();
+      closeCurrentResponse();
       return "";
     }
   }
 
-  private void closeResponse() {
+  public List<String> getAllResults() {
+    List<String> ret = new ArrayList<>();
+    if (pResponse == null) {
+      return ret;
+    }
+
+    while (true) {
+      String line = nextResult();
+      if (line.isEmpty()) {
+        return ret;
+      } else {
+        ret.add(line);
+      }
+    }
+  }
+
+  public void closeCurrentResponse() {
     if (pBufferedReader != null) {
       try {
         pBufferedReader.close();

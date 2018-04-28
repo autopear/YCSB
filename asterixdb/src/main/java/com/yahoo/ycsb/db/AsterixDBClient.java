@@ -209,6 +209,8 @@ public class AsterixDBClient extends DB {
               hasError = true;
               err = ex.toString();
             }
+          } else if (line.isEmpty()) {
+            // pass
           } else {
             hasError = true;
             err = "Unsupported record: " + line;
@@ -269,6 +271,8 @@ public class AsterixDBClient extends DB {
               hasError = true;
               err = ex.toString();
             }
+          } else if (line.isEmpty()) {
+            // pass
           } else {
             hasError = true;
             err = "Unsupported record: " + line;
