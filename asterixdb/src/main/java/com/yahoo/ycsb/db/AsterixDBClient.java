@@ -143,7 +143,7 @@ public class AsterixDBClient extends DB {
             pFeedWriter = null;
           }
         } else {
-          System.err.println("Invalid hostname \"" + pFeedHost + "\" or invalid port " + pFeedPort + ".");
+          throw new DBException("Invalid hostname \"" + pFeedHost + "\" or invalid port " + pFeedPort);
         }
       }
     }
@@ -151,7 +151,7 @@ public class AsterixDBClient extends DB {
     pConn = new AsterixDBConnector(pServiceURL);
 
     if (!pConn.isValid()) {
-      System.err.println("Connection is invalid.");
+      throw new DBException("Connection is invalid");
     }
 
     pIsInit = true;

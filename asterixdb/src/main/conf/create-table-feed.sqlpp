@@ -23,12 +23,15 @@ CREATE FEED userfeed WITH {
   "sockets": "localhost:10001",
   "address-type": "IP",
   "type-name": "UserType",
-  "format": "adm"
+  "format": "adm",
+  "upsert-feed": "true"
 };
 
 CONNECT FEED userfeed TO DATASET usertable;
 
 START FEED userfeed;
+
+
 
 STOP FEED userfeed;
 
