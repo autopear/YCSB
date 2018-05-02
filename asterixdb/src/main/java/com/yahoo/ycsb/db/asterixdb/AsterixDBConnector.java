@@ -13,6 +13,10 @@ import org.apache.http.impl.client.HttpClients;
 import org.apache.http.message.BasicNameValuePair;
 import org.apache.http.NameValuePair;
 import org.apache.http.StatusLine;
+import org.json.simple.JSONArray;
+import org.json.simple.JSONObject;
+import org.json.simple.parser.JSONParser;
+import org.json.simple.parser.ParseException;
 
 import static org.apache.commons.validator.routines.UrlValidator.ALLOW_LOCAL_URLS;
 
@@ -21,6 +25,7 @@ import static org.apache.commons.validator.routines.UrlValidator.ALLOW_LOCAL_URL
  */
 public class AsterixDBConnector {
   private CloseableHttpClient pClient = null;
+  private JSONParser pParser = null;
   private String pServiceUrl = "";
   private boolean pIsValid = false;
   private String pError;
@@ -38,6 +43,7 @@ public class AsterixDBConnector {
     pIsValid = urlValidator.isValid(pServiceUrl);
     if (pIsValid) {
       pClient = HttpClients.createDefault();
+      pParser = new JSONParser();
     }
   }
 
@@ -48,6 +54,7 @@ public class AsterixDBConnector {
     pIsValid = urlValidator.isValid(pServiceUrl);
     if (pIsValid) {
       pClient = HttpClients.createDefault();
+      pParser = new JSONParser();
     }
   }
 
@@ -65,6 +72,10 @@ public class AsterixDBConnector {
 
   public long elapsedTime() {
     return pElapsed;
+  }
+
+  public JSONParser parser() {
+    return pParser;
   }
 
   private String getServerError() {
@@ -100,6 +111,125 @@ public class AsterixDBConnector {
     }
 
     return "Unknown error.";
+  }
+
+  private static String escapeString(final String str) {
+    return str.replaceAll("'", "''");
+  }
+
+  public List<String> getPrimaryKeys(final String dataverse, final String dataset) {
+    if (!pIsValid) {
+      pError = "Invalid connector";
+      return null;
+    }
+    if (dataverse.isEmpty()) {
+      pError = "dataverse must not be empty";
+      return null;
+    }
+    if (dataset.isEmpty()) {
+      pError = "dataset must not be empty";
+      return null;
+    }
+
+    String sql = "SELECT VALUE InternalDetails.PrimaryKey FROM Metadata.`Dataset` WHERE "
+        + "DataverseName='" + escapeString(dataverse)
+        + "' AND DatasetName='" + escapeString(dataset)
+        + "';";
+
+    if (!execute(sql)) {
+      return null;
+    }
+
+    while (true) {
+      String line = nextResult();
+      if (line.isEmpty()) {
+        break;
+      }
+
+      if (line.startsWith("[") && line.endsWith("]")) {
+        JSONArray pks;
+        try {
+          pks = (JSONArray)(pParser.parse(line));
+        } catch (ParseException ex) {
+          pError = ex.toString();
+          closeCurrentResponse();
+          return null;
+        }
+
+        if (pks.size() == 1) {
+          List<String> ret = new ArrayList<>();
+          for (Object key : (JSONArray)(pks.get(0))) {
+            ret.add(key.toString());
+          }
+          closeCurrentResponse();
+          return ret;
+        } else {
+          pError = dataverse + "." + dataset + " has nested primary key(s)";
+          closeCurrentResponse();
+          return null;
+        }
+      }
+    }
+    pError = "Unknown error";
+    closeCurrentResponse();
+    return null;
+  }
+
+  public Map<String, String> getAllFields(final String dataverse, final String dataset) {
+    if (!pIsValid) {
+      pError = "Invalid connector";
+      return null;
+    }
+    if (dataverse.isEmpty()) {
+      pError = "dataverse must not be empty";
+      return null;
+    }
+    if (dataset.isEmpty()) {
+      pError = "dataset must not be empty";
+      return null;
+    }
+
+    String sql = "SELECT VALUE dt.Derived.Record.Fields FROM Metadata.`Dataset` ds, Metadata.`Datatype` dt WHERE "
+        + "ds.DataverseName='" + escapeString(dataverse)
+        + "' AND ds.DatasetName='" + escapeString(dataset)
+        + "' AND ds.DatatypeName=dt.DatatypeName;";
+
+    if (!execute(sql)) {
+      return null;
+    }
+
+    while (true) {
+      String line = nextResult();
+      if (line.isEmpty()) {
+        break;
+      }
+
+      if (line.startsWith("[") && line.endsWith("]")) {
+        JSONArray fields;
+        try {
+          fields = (JSONArray)(pParser.parse(line));
+        } catch (ParseException ex) {
+          pError = ex.toString();
+          closeCurrentResponse();
+          return null;
+        }
+        if (fields.isEmpty()) {
+          pError = "No field can be found";
+          closeCurrentResponse();
+          return null;
+        }
+        Map<String, String> ret = new HashMap<>();
+        for (Object fobj : fields) {
+          JSONObject f = (JSONObject)(fobj);
+          ret.put(f.get("FieldName").toString(), f.get("FieldType").toString());
+        }
+        closeCurrentResponse();
+        return ret;
+      }
+    }
+    pError = "Unknown error";
+    closeCurrentResponse();
+    return null;
   }
 
   public boolean executeUpdate(final String sql) {
