@@ -36,7 +36,8 @@ public class AsterixDBClient extends DB {
   public static final String DB_URL = "db.url";
   public static final String DB_DATAVERSE = "db.dataverse";
   public static final String DB_DATASET = "table";
-  public static final String DB_BATCHSIZE = "db.batchsize";
+  public static final String DB_BATCHINSERTS = "db.batchinserts";
+  public static final String DB_BATCHUPDATES = "db.batchupdates";
   public static final String DB_COLUMNS = "db.columns";
   public static final String DB_UPSERT = "db.upsertenabled";
   public static final String DB_FEEDENABLED = "db.feedenabled";
@@ -57,7 +58,10 @@ public class AsterixDBClient extends DB {
   private String pDataset;
 
   /** Batch size for insertion. If set to 1, batch insertion is disabled. */
-  private long pBatchSize = 1;
+  private long pBatchInserts = 1;
+
+  /** Batch size for updates. */
+  private long pBatchUpdates = 1;
 
   /** Number of columns in the table except the primary key. */
   private boolean pUpsert = false;
@@ -87,7 +91,10 @@ public class AsterixDBClient extends DB {
   private List<String> pFields = new ArrayList<>();
 
   /** Buffer array for batch insertion and conversion to string. */
-  private List<String> pBatchInserts = new ArrayList<>();
+  private List<String> pInsertStatements = new ArrayList<>();
+
+  /** Buffer array for batch update and conversion to string. */
+  private List<String> pUpdateStatements = new ArrayList<>();
 
   @Override
   public void init() throws DBException {
@@ -100,7 +107,8 @@ public class AsterixDBClient extends DB {
     pServiceURL = props.getProperty(DB_URL, "http://localhost:19002/query/service");
     pDataverse = props.getProperty(DB_DATAVERSE, "ycsb");
     pDataset = props.getProperty(DB_DATASET, "usertable");
-    pBatchSize = Long.parseLong(props.getProperty(DB_BATCHSIZE, "1"));
+    pBatchInserts = Long.parseLong(props.getProperty(DB_BATCHINSERTS, "1"));
+    pBatchUpdates = Long.parseLong(props.getProperty(DB_BATCHUPDATES, "1"));
     pUpsert = (props.getProperty(DB_UPSERT, "false").compareTo("true") == 0);
     pFeedEnabled = (props.getProperty(DB_FEEDENABLED, "false").compareTo("true") == 0);
     pFeedHost = props.getProperty(DB_FEEDHOST, "");
@@ -389,32 +397,40 @@ public class AsterixDBClient extends DB {
     statement += "}";
 
     if (pFeedWriter == null) {
-      pBatchInserts.add(statement); // Add to buffer array
-
-      // Batch insertion or single insertion depending on pBatchSize
-      if (pBatchInserts.size() == pBatchSize) {
+      // Insert via INSERT or UPSERT query
+      String sql;
+      if (pBatchInserts == 1) {
         // Construct SQL++ query
-        String sql = "USE " + pDataverse + ";" +
+        sql = "USE " + pDataverse + ";" +
             (pUpsert ? "UPSERT" : "INSERT") +
-            " INTO " + table + " ([" + String.join(",", pBatchInserts) + "]);";
-        pBatchInserts.clear(); // Reset buffer array
-
-        if (pPrintCmd) {
-          System.out.println("INSERT:\n" + sql);
-        }
-
-        // Execute query without getting result
-        if (pConn.executeUpdate(sql)) {
-          return Status.OK;
+            " INTO " + table + " ([" + statement + "]);";
+      } else {
+        pInsertStatements.add(statement); // Add to buffer array
+        if (pInsertStatements.size() == pBatchInserts) {
+          // Construct SQL++ query
+          sql = "USE " + pDataverse + ";" +
+              (pUpsert ? "UPSERT" : "INSERT") +
+              " INTO " + table + " ([" + String.join(",", pInsertStatements) + "]);";
+          pInsertStatements.clear(); // Reset buffer array
         } else {
-          System.err.println("Error in processing insert to table (" + table + "): " + pConn.error());
-          return Status.ERROR;
+          // Batching
+          return Status.BATCHED_OK;
         }
       }
 
-      // Batching
-      return Status.BATCHED_OK;
+      if (pPrintCmd) {
+        System.out.println("INSERT:\n" + sql);
+      }
+
+      // Execute query without getting result
+      if (pConn.executeUpdate(sql)) {
+        return Status.OK;
+      } else {
+        System.err.println("Error in processing insert to table (" + table + "): " + pConn.error());
+        return Status.ERROR;
+      }
     } else {
+      // Insert via SocketFeed
       if (pPrintCmd) {
         System.out.println("INSERT:\n" + statement);
       }
@@ -445,17 +461,34 @@ public class AsterixDBClient extends DB {
       }
     }
 
-    // Construct SQL++ query, use UPSERT to simulate UPDATE
-    String sql = "USE " + pDataverse + ";" +
-        "UPSERT INTO " + table + " (SELECT " +
-        String.join(",", attributes) +
-        " FROM " + table + " WHERE " + pPK + "='" + escapeString(key) + "'" +
-        ");";
+    // Select a record and replace certain field(s)
+    String statement = "SELECT " + String.join(",", attributes) +
+        " FROM " + table + " WHERE " + pPK + "='" + escapeString(key) + "'";
+
+    String sql;
+
+    if (pBatchUpdates == 1) {
+      // Construct SQL++ query, use UPSERT to simulate UPDATE
+      sql = "USE " + pDataverse + ";" +
+          "UPSERT INTO " + table + " (" + statement + ");";
+    } else {
+      pUpdateStatements.add(statement); // Add to buffer array
+      if (pUpdateStatements.size() == pBatchUpdates) {
+        // Construct SQL++ query, use UPSERT to simulate UPDATE
+        sql = "USE " + pDataverse + ";" +
+            "UPSERT INTO " + table + " (" +
+            String.join(" UNION ALL ", pUpdateStatements) +
+            ");";
+        pUpdateStatements.clear(); // Reset buffer array
+      } else {
+        // Batching
+        return Status.BATCHED_OK;
+      }
+    }
 
     if (pPrintCmd) {
       System.out.println("UPDATE:\n" + sql);
     }
-
     // Execute query without getting result
     if (pConn.executeUpdate(sql)) {
       return Status.OK;
