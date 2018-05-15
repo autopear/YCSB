@@ -36,8 +36,14 @@ public class AsterixDBConnector {
   private InputStreamReader pStreamReader = null;
   private BufferedReader pBufferedReader = null;
 
-  public AsterixDBConnector(final String hostname, int port) {
-    pServiceUrl = "http://" + hostname + ":" + port + "/query/service";
+  /**
+   * Constructor. Http URL will be used in the format of http://address:port/query/service
+   *
+   * @param address Hostnme or IP of the database server.
+   * @param port The port used for HTTP connection.
+   */
+  public AsterixDBConnector(final String address, int port) {
+    pServiceUrl = "http://" + address + ":" + port + "/query/service";
     String[] schemes = {"http"};
     UrlValidator urlValidator = new UrlValidator(schemes, ALLOW_LOCAL_URLS);
     pIsValid = urlValidator.isValid(pServiceUrl);
@@ -47,6 +53,11 @@ public class AsterixDBConnector {
     }
   }
 
+  /**
+   * Constructor.
+   *
+   * @param serviceUrl The service URL for HTTP connection.
+   */
   public AsterixDBConnector(final String serviceUrl) {
     pServiceUrl = serviceUrl;
     String[] schemes = {"http", "https"};
@@ -58,26 +69,42 @@ public class AsterixDBConnector {
     }
   }
 
+  /**
+   * @return True if the connector is valid.
+   */
   public boolean isValid() {
     return pIsValid;
   }
 
+  /**
+   * @return True if an error happened in the last executed function.
+   */
   public boolean hasError() {
     return !pError.isEmpty();
   }
 
+  /**
+   * @return The error message from the last executed function. Empty if no error.
+   */
   public String error() {
     return pError;
   }
 
+  /**
+   * @return The time in milliseconds of the last executed function.
+   */
   public long elapsedTime() {
     return pElapsed;
   }
 
+  /**
+   * @return A JSON parser which can be used by elsewhere.
+   */
   public JSONParser parser() {
     return pParser;
   }
 
+  /** Retrieve the error message from the server. */
   private String getServerError() {
     if (pResponse == null) {
       return "";
@@ -113,10 +140,18 @@ public class AsterixDBConnector {
     return "Unknown error.";
   }
 
+  /** Escape a string value to be encapsulated by single quotes. */
   private static String escapeString(final String str) {
     return str.replaceAll("'", "''");
   }
 
+  /**
+   * Retrieve all primary keys in order from a given dataset.
+   *
+   * @param dataverse Name of the dataverse.
+   * @param dataset Name of the dataset.
+   * @return A list of primary keys in order.
+   */
   public List<String> getPrimaryKeys(final String dataverse, final String dataset) {
     if (!pIsValid) {
       pError = "Invalid connector";
@@ -175,6 +210,13 @@ public class AsterixDBConnector {
     return null;
   }
 
+  /**
+   * Retrieve all fields with the type of each key, including the primary key(s).
+   *
+   * @param dataverse Name of the dataverse.
+   * @param dataset Name of the dataset.
+   * @return A map of field names and their types.
+   */
   public Map<String, String> getAllFields(final String dataverse, final String dataset) {
     if (!pIsValid) {
       pError = "Invalid connector";
@@ -232,6 +274,12 @@ public class AsterixDBConnector {
     return null;
   }
 
+  /**
+   * Execute any SQL++ query that does not fetch record from the database.
+   *
+   * @param sql SQL++ statement.
+   * @return True on success. False on failure. Error message can be checked by error().
+   */
   public boolean executeUpdate(final String sql) {
     if (pResponse != null) {
       pError = "Another statement is running.";
@@ -280,6 +328,12 @@ public class AsterixDBConnector {
     }
   }
 
+  /**
+   * Execute a SELECT SQL++ query. Results can be fetched via nextResult().
+   *
+   * @param sql SQL++ statement.
+   * @return True on success. False on failure. Error message can be checked by error().
+   */
   public boolean execute(final String sql) {
     if (pResponse != null) {
       pError = "Another statement is running.";
@@ -345,6 +399,11 @@ public class AsterixDBConnector {
     }
   }
 
+  /**
+   * Get one result from a SELECT SQL++ query.
+   *
+   * @return The string content (in JSON format) of one result. Empty if no result or no more result.
+   */
   public String nextResult() {
     if (pBufferedReader == null) {
       pError = "No statement executed.";
@@ -401,6 +460,12 @@ public class AsterixDBConnector {
     }
   }
 
+  /**
+   * Get all results from a SELECT SQL++ query.
+   * This function may consume too much memory if there are too many results.
+   *
+   * @return A list of result strings. Empty string if no result or error.
+   */
   public List<String> getAllResults() {
     List<String> ret = new ArrayList<>();
     if (pResponse == null) {
@@ -417,6 +482,9 @@ public class AsterixDBConnector {
     }
   }
 
+  /**
+   * Close the current response from the server.
+   */
   public void closeCurrentResponse() {
     if (pBufferedReader != null) {
       try {

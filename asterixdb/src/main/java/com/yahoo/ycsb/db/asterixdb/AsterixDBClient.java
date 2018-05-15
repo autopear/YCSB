@@ -38,10 +38,9 @@ public class AsterixDBClient extends DB {
   public static final String DB_DATASET = "table";
   public static final String DB_BATCHINSERTS = "db.batchinserts";
   public static final String DB_BATCHUPDATES = "db.batchupdates";
-  public static final String DB_COLUMNS = "db.columns";
   public static final String DB_UPSERT = "db.upsertenabled";
   public static final String DB_FEEDENABLED = "db.feedenabled";
-  public static final String DB_FEEDHOST = "db.feedhost";
+  public static final String DB_FEEDADDR = "db.feedaddr";
   public static final String DB_FEEDPORT = "db.feedport";
   public static final String PRINTCMD = "printcmd";
 
@@ -70,7 +69,7 @@ public class AsterixDBClient extends DB {
   private boolean pFeedEnabled = false;
 
   /** Hostname or IP for SocketFeed. */
-  private String pFeedHost = "";
+  private String pFeedAddr = "";
 
   /** Port for SocketFeed. */
   private int pFeedPort = -1;
@@ -111,7 +110,7 @@ public class AsterixDBClient extends DB {
     pBatchUpdates = Long.parseLong(props.getProperty(DB_BATCHUPDATES, "1"));
     pUpsert = (props.getProperty(DB_UPSERT, "false").compareTo("true") == 0);
     pFeedEnabled = (props.getProperty(DB_FEEDENABLED, "false").compareTo("true") == 0);
-    pFeedHost = props.getProperty(DB_FEEDHOST, "");
+    pFeedAddr = props.getProperty(DB_FEEDADDR, "");
     pFeedPort = Integer.parseInt(props.getProperty(DB_FEEDPORT, "-1"));
     pPrintCmd = (props.getProperty(PRINTCMD, "false").compareTo("true") == 0);
 
@@ -124,30 +123,7 @@ public class AsterixDBClient extends DB {
     }
 
     if (pFeedEnabled) {
-      if (pFeedPort > 65535 || pFeedPort < 0) {
-        System.err.println("Invalid port " + pFeedPort + ".");
-      } else {
-        String feedURL = "http://" + pFeedHost + ":" + pFeedPort + "/";
-        String[] schemes = {"http"};
-        UrlValidator urlValidator = new UrlValidator(schemes, ALLOW_LOCAL_URLS);
-        if (urlValidator.isValid(feedURL)) {
-          try {
-            pFeedSock = new Socket(pFeedHost, pFeedPort);
-            pFeedSock.setKeepAlive(true);
-            pFeedWriter = new PrintWriter(pFeedSock.getOutputStream());
-          } catch (UnknownHostException ex) {
-            System.err.println("Invalid feed configuration " + ex.toString());
-            pFeedSock = null;
-            pFeedWriter = null;
-          } catch (IOException ex) {
-            System.err.println("Error creating SocketFeed " + ex.toString());
-            pFeedSock = null;
-            pFeedWriter = null;
-          }
-        } else {
-          throw new DBException("Invalid hostname \"" + pFeedHost + "\" or invalid port " + pFeedPort);
-        }
-      }
+      connectFeed();
     }
 
     pConn = new AsterixDBConnector(pServiceURL);
@@ -163,6 +139,35 @@ public class AsterixDBClient extends DB {
     pIsInit = true;
   }
 
+  /** Create connection to the socket feed. */
+  private void connectFeed() throws DBException  {
+    if (pFeedPort > 65535 || pFeedPort < 0) {
+      throw new DBException("Invalid port " + pFeedPort + ".");
+    } else {
+      String feedURL = "http://" + pFeedAddr + ":" + pFeedPort + "/";
+      String[] schemes = {"http"};
+      UrlValidator urlValidator = new UrlValidator(schemes, ALLOW_LOCAL_URLS);
+      if (urlValidator.isValid(feedURL)) {
+        try {
+          pFeedSock = new Socket(pFeedAddr, pFeedPort);
+          pFeedSock.setKeepAlive(true);
+          pFeedWriter = new PrintWriter(pFeedSock.getOutputStream());
+        } catch (UnknownHostException ex) {
+          pFeedSock = null;
+          pFeedWriter = null;
+          throw new DBException("Invalid feed configuration " + ex.toString());
+        } catch (IOException ex) {
+          pFeedSock = null;
+          pFeedWriter = null;
+          throw new DBException("Error creating SocketFeed " + ex.toString());
+        }
+      } else {
+        throw new DBException("Invalid hostname \"" + pFeedAddr + "\" or invalid port " + pFeedPort);
+      }
+    }
+  }
+
+  /** Check if it is a valid name for dataverse or dataset. */
   private static boolean isValidName(final String name) {
     if (name.isEmpty()) {
       return false;
@@ -188,6 +193,7 @@ public class AsterixDBClient extends DB {
     }
   }
 
+  /** Retrieve the primary key and all other fields from the dataset. */
   private boolean getPrimaryKeysAndAllFields() {
     if (pIsInit) {
       return false;
@@ -223,10 +229,12 @@ public class AsterixDBClient extends DB {
     return true;
   }
 
+  /** Escape a string value to be encapsulated by single quotes. */
   private static String escapeString(final String str) {
     return str.replaceAll("'", "''");
   }
 
+  /** Convert bytes data to hexadecimal string. */
   private static String bytesToHex(final ByteIterator data) {
     byte[] bytes = data.toArray();
     char[] hexChars = new char[bytes.length * 2];
@@ -238,6 +246,7 @@ public class AsterixDBClient extends DB {
     return new String(hexChars);
   }
 
+  /** Convert hexadecimal string to bytes data. */
   private static byte[] hexToBytes(final String s) {
     int len = s.length();
     byte[] data = new byte[len / 2];
@@ -248,6 +257,13 @@ public class AsterixDBClient extends DB {
     return data;
   }
 
+  /** Print a command. */
+  private void printCmd(final String operation, final String cmd) {
+    if (pPrintCmd) {
+      System.out.println(operation + ":\n" + cmd);
+    }
+  }
+
   @Override
   public Status read(String table, String key, Set<String> fields, Map<String, ByteIterator> result) {
     // Construct SQL++ query
@@ -256,53 +272,49 @@ public class AsterixDBClient extends DB {
         " FROM " + table +
         " WHERE " + pPK + "='" + escapeString(key) + "';";
 
-    if (pPrintCmd) {
-      System.out.println("READ:\n" + sql);
-    }
+    printCmd("READ", sql);
 
     // Execute query and wait to get result
-    if (pConn.execute(sql)) {
-      boolean hasError = false;
-      String err = "";
-      while (true) {
-        String line = pConn.nextResult();
-        if (line.isEmpty()) {
-          break;
-        }
-        if (!hasError) {
-          // Each record in the result must be in the format of a JSON object
-          if (line.startsWith("{") && line.endsWith("}")) {
-            try {
-              // Parse to JSON object to get value for given key
-              JSONObject record = (JSONObject) (pConn.parser().parse(line));
-              if (result != null) {
-                for (String col : (fields == null ? pFields : fields)) {
-                  result.put(col, new ByteArrayByteIterator(hexToBytes(record.get(col).toString())));
-                }
-              }
-            } catch (ParseException ex) {
-              hasError = true;
-              err = "ParseException: " + ex.toString();
-            }
-          } else if (line.isEmpty()) {
-            // pass
-          } else {
-            hasError = true;
-            err = "Unsupported record: " + line;
-          }
-        }
-        // We continue to get lines from the HTTP response, this ensures closing internal buffers correctly
-      }
-      if (hasError) {
-        System.err.println("Error in processing read from table (" + table + "): " + err);
-        return Status.ERROR;
-      } else {
-        return Status.OK;
-      }
-    } else {
+    if (!pConn.execute(sql)) {
       System.err.println("Error in processing read to table (" + table + "): " + pConn.error());
       return Status.ERROR;
     }
+    boolean hasError = false;
+    String err = "";
+    while (true) {
+      String line = pConn.nextResult();
+      if (line.isEmpty()) {
+        break;
+      }
+      if (!hasError) {
+        // Each record in the result must be in the format of a JSON object
+        if (line.startsWith("{") && line.endsWith("}")) {
+          try {
+            // Parse to JSON object to get value for given key
+            JSONObject record = (JSONObject) (pConn.parser().parse(line));
+            if (result != null) {
+              for (String col : (fields == null ? pFields : fields)) {
+                result.put(col, new ByteArrayByteIterator(hexToBytes(record.get(col).toString())));
+              }
+            }
+          } catch (ParseException ex) {
+            hasError = true;
+            err = "ParseException: " + ex.toString();
+          }
+        } else if (line.isEmpty()) {
+          // pass
+        } else {
+          hasError = true;
+          err = "Unsupported record: " + line;
+        }
+      }
+      // We continue to get lines from the HTTP response, this ensures closing internal buffers correctly
+    }
+    if (hasError) {
+      System.err.println("Error in processing read from table (" + table + "): " + err);
+      return Status.ERROR;
+    }
+    return Status.OK;
   }
 
   @Override
@@ -315,55 +327,52 @@ public class AsterixDBClient extends DB {
         " WHERE " + pPK + ">='" + escapeString(startkey) + "'" +
         " ORDER BY " + pPK + " LIMIT " + recordcount + ";";
 
-    if (pPrintCmd) {
-      System.out.println("SCAN:\n" + sql);
-    }
+    printCmd("SCAN", sql);
 
     // Execute query and wait to get result
-    if (pConn.execute(sql)) {
-      boolean hasError = false;
-      String err = "";
-      while (true) {
-        String line = pConn.nextResult();
-        if (line.isEmpty()) {
-          break;
-        }
-        if (!hasError) {
-          // Each record in the result must be in the format of a JSON object
-          if (line.startsWith("{") && line.endsWith("}")) {
-            try {
-              // Parse to JSON object to get value for given key
-              JSONObject record = (JSONObject) (pConn.parser().parse(line));
-              if (result != null) {
-                HashMap<String, ByteIterator> oneResult = new HashMap<>();
-                for (String col : (fields == null ? pFields : fields)) {
-                  oneResult.put(col, new ByteArrayByteIterator(hexToBytes(record.get(col).toString())));
-                }
-                result.add(oneResult);
-              }
-            } catch (ParseException ex) {
-              hasError = true;
-              err = "ParseException: " + ex.toString();
-            }
-          } else if (line.isEmpty()) {
-            // pass
-          } else {
-            hasError = true;
-            err = "Unsupported record: " + line;
-          }
-        }
-        // We continue to get lines from the HTTP response, this ensures closing internal buffers correctly
-      }
-      if (hasError) {
-        System.err.println("Error in processing read from table (" + table + "): " + err);
-        return Status.ERROR;
-      } else {
-        return Status.OK;
-      }
-    } else {
+    if (!pConn.execute(sql)) {
       System.err.println("Error in processing scan to table (" + table + "): " + pConn.error());
       return Status.ERROR;
     }
+
+    boolean hasError = false;
+    String err = "";
+    while (true) {
+      String line = pConn.nextResult();
+      if (line.isEmpty()) {
+        break;
+      }
+      if (!hasError) {
+        // Each record in the result must be in the format of a JSON object
+        if (line.startsWith("{") && line.endsWith("}")) {
+          try {
+            // Parse to JSON object to get value for given key
+            JSONObject record = (JSONObject) (pConn.parser().parse(line));
+            if (result != null) {
+              HashMap<String, ByteIterator> oneResult = new HashMap<>();
+              for (String col : (fields == null ? pFields : fields)) {
+                oneResult.put(col, new ByteArrayByteIterator(hexToBytes(record.get(col).toString())));
+              }
+              result.add(oneResult);
+            }
+          } catch (ParseException ex) {
+            hasError = true;
+            err = "ParseException: " + ex.toString();
+          }
+        } else if (line.isEmpty()) {
+          // pass
+        } else {
+          hasError = true;
+          err = "Unsupported record: " + line;
+        }
+      }
+      // We continue to get lines from the HTTP response, this ensures closing internal buffers correctly
+    }
+    if (hasError) {
+      System.err.println("Error in processing read from table (" + table + "): " + err);
+      return Status.ERROR;
+    }
+    return Status.OK;
   }
 
   @Override
@@ -372,17 +381,14 @@ public class AsterixDBClient extends DB {
     String sql = "USE " + pDataverse + ";" +
         "DELETE FROM " + table + " WHERE " + pPK + "='" + escapeString(key) + "';";
 
-    if (pPrintCmd) {
-      System.out.println("DELETE:\n" + sql);
-    }
+    printCmd("DELETE", sql);
 
     // Execute query without getting result
-    if (pConn.executeUpdate(sql)) {
-      return Status.OK;
-    } else {
+    if (!pConn.executeUpdate(sql)) {
       System.err.println("Error in processing delete from table (" + table + "): " + pConn.error());
       return Status.ERROR;
     }
+    return Status.OK;
   }
 
   @Override
@@ -396,54 +402,51 @@ public class AsterixDBClient extends DB {
     }
     statement += "}";
 
-    if (pFeedWriter == null) {
+    if (pFeedEnabled) {
+      // Insert via SocketFeed
+      printCmd("FEED", statement);
+
+      pFeedWriter.write(statement);
+
+      if (pFeedWriter.checkError()) {
+        System.err.println("Error in processing insert to table (" + (pDataset.isEmpty() ? table : pDataset)
+            + ") via feed");
+        try {
+          connectFeed(); // Reconnect feed for retry
+        } catch (DBException ex) {
+          System.err.println("Error connecting to feed: " + ex.toString());
+        }
+        return Status.ERROR;
+      }
+    } else {
       // Insert via INSERT or UPSERT query
       String sql;
       if (pBatchInserts == 1) {
         // Construct SQL++ query
         sql = "USE " + pDataverse + ";" +
-            (pUpsert ? "UPSERT" : "INSERT") +
-            " INTO " + table + " ([" + statement + "]);";
+            (pUpsert ? "UPSERT" : "INSERT") + " INTO " + table + " ([" + statement + "]);";
       } else {
         pInsertStatements.add(statement); // Add to buffer array
-        if (pInsertStatements.size() == pBatchInserts) {
-          // Construct SQL++ query
-          sql = "USE " + pDataverse + ";" +
-              (pUpsert ? "UPSERT" : "INSERT") +
-              " INTO " + table + " ([" + String.join(",", pInsertStatements) + "]);";
-          pInsertStatements.clear(); // Reset buffer array
-        } else {
-          // Batching
-          return Status.BATCHED_OK;
+        if (pInsertStatements.size() < pBatchInserts) {
+          return Status.BATCHED_OK; // Batching
         }
+        // Construct SQL++ query
+        sql = "USE " + pDataverse + ";" +
+            (pUpsert ? "UPSERT" : "INSERT") +
+            " INTO " + table + " ([" + String.join(",", pInsertStatements) + "]);";
+        pInsertStatements.clear(); // Reset buffer array
       }
 
-      if (pPrintCmd) {
-        System.out.println("INSERT:\n" + sql);
-      }
+      printCmd(pUpsert ? "UPSERT" : "INSERT", sql);
 
       // Execute query without getting result
-      if (pConn.executeUpdate(sql)) {
-        return Status.OK;
-      } else {
+      if (!pConn.executeUpdate(sql)) {
         System.err.println("Error in processing insert to table (" + table + "): " + pConn.error());
         return Status.ERROR;
       }
-    } else {
-      // Insert via SocketFeed
-      if (pPrintCmd) {
-        System.out.println("INSERT:\n" + statement);
-      }
-
-      pFeedWriter.write(statement);
-      if (pFeedWriter.checkError()) {
-        System.err.println("Error in processing insert to table (" + (pDataset.isEmpty() ? table : pDataset)
-            + ") via feed");
-        return Status.ERROR;
-      } else {
-        return Status.OK;
-      }
     }
+
+    return Status.OK;
   }
 
   @Override
@@ -466,7 +469,6 @@ public class AsterixDBClient extends DB {
         " FROM " + table + " WHERE " + pPK + "='" + escapeString(key) + "'";
 
     String sql;
-
     if (pBatchUpdates == 1) {
       // Construct SQL++ query, use UPSERT to simulate UPDATE
       sql = "USE " + pDataverse + ";" +
@@ -477,8 +479,7 @@ public class AsterixDBClient extends DB {
         // Construct SQL++ query, use UPSERT to simulate UPDATE
         sql = "USE " + pDataverse + ";" +
             "UPSERT INTO " + table + " (" +
-            String.join(" UNION ALL ", pUpdateStatements) +
-            ");";
+            String.join(" UNION ALL ", pUpdateStatements) + ");";
         pUpdateStatements.clear(); // Reset buffer array
       } else {
         // Batching
@@ -486,16 +487,15 @@ public class AsterixDBClient extends DB {
       }
     }
 
-    if (pPrintCmd) {
-      System.out.println("UPDATE:\n" + sql);
-    }
+    printCmd("UPDATE", sql);
+
     // Execute query without getting result
-    if (pConn.executeUpdate(sql)) {
-      return Status.OK;
-    } else {
+    if (!pConn.executeUpdate(sql)) {
       System.err.println("Error in processing update to table (" + table + "): " + pConn.error());
       return Status.ERROR;
     }
+
+    return Status.OK;
   }
 
   @Override
