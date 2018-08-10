@@ -40,7 +40,7 @@ public class AsterixDBClient extends DB {
   public static final String DB_BATCHUPDATES = "db.batchupdates";
   public static final String DB_UPSERT = "db.upsertenabled";
   public static final String DB_FEEDENABLED = "db.feedenabled";
-  public static final String DB_FEEDADDR = "db.feedaddr";
+  public static final String DB_FEEDHOST = "db.feedhost";
   public static final String DB_FEEDPORT = "db.feedport";
   public static final String PRINTCMD = "printcmd";
 
@@ -69,7 +69,7 @@ public class AsterixDBClient extends DB {
   private boolean pFeedEnabled = false;
 
   /** Hostname or IP for SocketFeed. */
-  private String pFeedAddr = "";
+  private String pFeedHost = "";
 
   /** Port for SocketFeed. */
   private int pFeedPort = -1;
@@ -110,7 +110,7 @@ public class AsterixDBClient extends DB {
     pBatchUpdates = Long.parseLong(props.getProperty(DB_BATCHUPDATES, "1"));
     pUpsert = (props.getProperty(DB_UPSERT, "false").compareTo("true") == 0);
     pFeedEnabled = (props.getProperty(DB_FEEDENABLED, "false").compareTo("true") == 0);
-    pFeedAddr = props.getProperty(DB_FEEDADDR, "");
+    pFeedHost = props.getProperty(DB_FEEDHOST, "");
     pFeedPort = Integer.parseInt(props.getProperty(DB_FEEDPORT, "-1"));
     pPrintCmd = (props.getProperty(PRINTCMD, "false").compareTo("true") == 0);
 
@@ -144,12 +144,12 @@ public class AsterixDBClient extends DB {
     if (pFeedPort > 65535 || pFeedPort < 0) {
       throw new DBException("Invalid port " + pFeedPort + ".");
     } else {
-      String feedURL = "http://" + pFeedAddr + ":" + pFeedPort + "/";
+      String feedURL = "http://" + pFeedHost + ":" + pFeedPort + "/";
       String[] schemes = {"http"};
       UrlValidator urlValidator = new UrlValidator(schemes, ALLOW_LOCAL_URLS);
       if (urlValidator.isValid(feedURL)) {
         try {
-          pFeedSock = new Socket(pFeedAddr, pFeedPort);
+          pFeedSock = new Socket(pFeedHost, pFeedPort);
           pFeedSock.setKeepAlive(true);
           pFeedWriter = new PrintWriter(pFeedSock.getOutputStream());
         } catch (UnknownHostException ex) {
@@ -162,7 +162,7 @@ public class AsterixDBClient extends DB {
           throw new DBException("Error creating SocketFeed " + ex.toString());
         }
       } else {
-        throw new DBException("Invalid hostname \"" + pFeedAddr + "\" or invalid port " + pFeedPort);
+        throw new DBException("Invalid hostname \"" + pFeedHost + "\" or invalid port " + pFeedPort);
       }
     }
   }
