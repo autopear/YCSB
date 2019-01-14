@@ -73,6 +73,7 @@ LICENSE file.
     <arangodb.version>4.4.1</arangodb.version>
     <asterixdb.version>0.9.4</asterixdb.version>
     <asynchbase.version>1.7.1</asynchbase.version>
+    <azurecosmos.version>2.0.0</azurecosmos.version>
     <azuredocumentdb.version>1.8.1</azuredocumentdb.version>
     <azurestorage.version>4.0.0</azurestorage.version>
     <cassandra.cql.version>3.0.0</cassandra.cql.version>
@@ -94,10 +95,10 @@ LICENSE file.
     <kudu.version>1.6.0</kudu.version>
     <maprhbase.version>1.1.8-mapr-1710</maprhbase.version>
     <!--<mapkeeper.version>1.0</mapkeeper.version>-->
-    <mongodb.version>3.6.3</mongodb.version>
+    <mongodb.version>3.8.0</mongodb.version>
     <mongodb.async.version>2.0.1</mongodb.async.version>
     <openjpa.jdbc.version>2.1.1</openjpa.jdbc.version>
-    <orientdb.version>2.2.10</orientdb.version>
+    <orientdb.version>2.2.37</orientdb.version>
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
     <redis.version>2.9.0</redis.version>
     <riak.version>2.0.5</riak.version>
@@ -123,6 +124,7 @@ LICENSE file.
     <module>arangodb</module>
     <module>asterixdb</module>
     <module>asynchbase</module>
+    <module>azurecosmos</module>
     <module>azuredocumentdb</module>
     <module>azuretablestorage</module>
     <module>cassandra</module>
