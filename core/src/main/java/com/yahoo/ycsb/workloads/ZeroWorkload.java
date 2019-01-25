@@ -816,10 +816,10 @@ public class ZeroWorkload extends Workload {
 
   public void doTransactionInsert(DB db) {
     // choose the next key
-    long keynum = transactioninsertkeysequence.nextValue() * 2;
+    long keynum = transactioninsertkeysequence.nextValue();
 
     try {
-      String dbkey = buildKeyName(keynum);
+      String dbkey = buildKeyName(keynum * 2);
 
       HashMap<String, ByteIterator> values = buildValues(dbkey);
       db.insert(table, dbkey, values);
