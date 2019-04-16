@@ -95,6 +95,8 @@ public class AsterixDBClient extends DB {
   /** Buffer array for batch update and conversion to string. */
   private List<String> pUpdateStatements = new ArrayList<>();
 
+  private boolean writeallfields;
+
   @Override
   public void init() throws DBException {
     if (pIsInit) {
@@ -113,6 +115,7 @@ public class AsterixDBClient extends DB {
     pFeedHost = props.getProperty(DB_FEEDHOST, "");
     pFeedPort = Integer.parseInt(props.getProperty(DB_FEEDPORT, "-1"));
     pPrintCmd = (props.getProperty(PRINTCMD, "false").compareTo("true") == 0);
+    writeallfields = Boolean.parseBoolean(props.getProperty("writeallfields", "false"));
 
     if (!isValidName(pDataverse)) {
       throw new DBException("Invalid dataverse \"" + pDataverse + "\"");
@@ -451,50 +454,103 @@ public class AsterixDBClient extends DB {
 
   @Override
   public Status update(String table, String key, Map<String, ByteIterator> values) {
-    // Construct a list of fields to be read from the original table, and fields to be actually updated
-    List<String> attributes = new ArrayList<>();
-    attributes.add(pPK); // We don't update the primary key
-    for (String col : pFields) {
-      if (values.containsKey(col)) {
-        // Update the value for the field, using format "new value" AS field
-        String newValue = "hex(\"" + bytesToHex(values.get(col)) + "\") AS " + col;
-        attributes.add(newValue);
-      } else {
-        attributes.add(col); // The field is not updated
+    if (writeallfields) {
+      // Prepare a record to insert
+      String statement = "{\"" + pPK + "\":\"" + JSONObject.escape(key) + "\"";
+      for (String col : pFields) {
+        if (values.containsKey(col)) {
+          statement += (",\"" + col + "\":hex(\"" + bytesToHex(values.get(col)) + "\")");
+        }
       }
-    }
+      statement += "}";
 
-    // Select a record and replace certain field(s)
-    String statement = "SELECT " + String.join(",", attributes) +
-        " FROM " + table + " WHERE " + pPK + "='" + escapeString(key) + "'";
+      if (pFeedEnabled) {
+        // Insert via SocketFeed
+        printCmd("FEED", statement);
 
-    String sql;
-    if (pBatchUpdates == 1) {
-      // Construct SQL++ query, use UPSERT to simulate UPDATE
-      sql = "USE " + pDataverse + ";" +
-          "UPSERT INTO " + table + " (" + statement + ");";
+        pFeedWriter.write(statement);
+
+        if (pFeedWriter.checkError()) {
+          System.err.println("Error in processing insert to table (" + (pDataset.isEmpty() ? table : pDataset)
+              + ") via feed");
+          try {
+            connectFeed(); // Reconnect feed for retry
+          } catch (DBException ex) {
+            System.err.println("Error connecting to feed: " + ex.toString());
+          }
+          return Status.ERROR;
+        }
+      } else {
+        // Insert via INSERT or UPSERT query
+        String sql;
+        if (pBatchInserts == 1) {
+          // Construct SQL++ query
+          sql = "USE " + pDataverse + ";" +
+              (pUpsert ? "UPSERT" : "INSERT") + " INTO " + table + " ([" + statement + "]);";
+        } else {
+          pInsertStatements.add(statement); // Add to buffer array
+          if (pInsertStatements.size() < pBatchInserts) {
+            return Status.BATCHED_OK; // Batching
+          }
+          // Construct SQL++ query
+          sql = "USE " + pDataverse + ";" +
+              "UPSERT INTO " + table + " ([" + String.join(",", pInsertStatements) + "]);";
+          pInsertStatements.clear(); // Reset buffer array
+        }
+
+        printCmd("UPSERT", sql);
+
+        // Execute query without getting result
+        if (!pConn.executeUpdate(sql)) {
+          System.err.println("Error in processing insert to table (" + table + "): " + pConn.error());
+          return Status.ERROR;
+        }
+      }
     } else {
-      pUpdateStatements.add(statement); // Add to buffer array
-      if (pUpdateStatements.size() == pBatchUpdates) {
+      // Construct a list of fields to be read from the original table, and fields to be actually updated
+      List<String> attributes = new ArrayList<>();
+      attributes.add(pPK); // We don't update the primary key
+      for (String col : pFields) {
+        if (values.containsKey(col)) {
+          // Update the value for the field, using format "new value" AS field
+          String newValue = "hex(\"" + bytesToHex(values.get(col)) + "\") AS " + col;
+          attributes.add(newValue);
+        } else {
+          attributes.add(col); // The field is not updated
+        }
+      }
+
+      // Select a record and replace certain field(s)
+      String statement = "SELECT " + String.join(",", attributes) +
+          " FROM " + table + " WHERE " + pPK + "='" + escapeString(key) + "'";
+
+      String sql;
+      if (pBatchUpdates == 1) {
         // Construct SQL++ query, use UPSERT to simulate UPDATE
         sql = "USE " + pDataverse + ";" +
-            "UPSERT INTO " + table + " (" +
-            String.join(" UNION ALL ", pUpdateStatements) + ");";
-        pUpdateStatements.clear(); // Reset buffer array
+            "UPSERT INTO " + table + " (" + statement + ");";
       } else {
-        // Batching
-        return Status.BATCHED_OK;
+        pUpdateStatements.add(statement); // Add to buffer array
+        if (pUpdateStatements.size() == pBatchUpdates) {
+          // Construct SQL++ query, use UPSERT to simulate UPDATE
+          sql = "USE " + pDataverse + ";" +
+              "UPSERT INTO " + table + " (" +
+              String.join(" UNION ALL ", pUpdateStatements) + ");";
+          pUpdateStatements.clear(); // Reset buffer array
+        } else {
+          // Batching
+          return Status.BATCHED_OK;
+        }
+      }
+
+      printCmd("UPDATE", sql);
+
+      // Execute query without getting result
+      if (!pConn.executeUpdate(sql)) {
+        System.err.println("Error in processing update to table (" + table + "): " + pConn.error());
+        return Status.ERROR;
       }
     }
-
-    printCmd("UPDATE", sql);
-
-    // Execute query without getting result
-    if (!pConn.executeUpdate(sql)) {
-      System.err.println("Error in processing update to table (" + table + "): " + pConn.error());
-      return Status.ERROR;
-    }
-
     return Status.OK;
   }
 

@@ -17,6 +17,9 @@
 
 package com.yahoo.ycsb.workloads;
 
+import org.apache.commons.math3.distribution.BinomialDistribution;
+import org.apache.commons.math3.distribution.ZipfDistribution;
+
 import com.yahoo.ycsb.*;
 import com.yahoo.ycsb.generator.*;
 import com.yahoo.ycsb.measurements.Measurements;
@@ -281,6 +284,12 @@ public class CoreWorkloadWithAntimatter extends Workload {
   public static final String ANTIMATTER_FRACTION_DEFAULT = "0.1";
 
   /**
+   * Update key distribution.
+   */
+  public static final String KEY_DISTRIBUTION = "keydistribution";
+  public static final String KEY_DISTRIBUTION_DEFAULT = "uniform";
+
+  /**
    * Delay between every operation in milliseconds.
    */
   public static final String OPERATION_DELAY = "operationdelay";
@@ -302,6 +311,7 @@ public class CoreWorkloadWithAntimatter extends Workload {
   private long insertstart;
   protected double antimatterFraction;
   protected int antimatterFractionScale;
+  protected String keyDistribution;
   protected int delayMin;
   protected int delayMax;
 
@@ -333,6 +343,43 @@ public class CoreWorkloadWithAntimatter extends Workload {
           "Unknown field length distribution \"" + fieldlengthdistribution + "\"");
     }
     return fieldlengthgenerator;
+  }
+
+  private void initCustom(Properties p) throws WorkloadException {
+    antimatterFraction = Double.parseDouble(p.getProperty(
+        ANTIMATTER_FRACTION, ANTIMATTER_FRACTION_DEFAULT));
+    if (antimatterFraction > 1.0) {
+      throw new WorkloadException(
+          "The antimatter fraction must be less than 1.0 (100%)");
+    }
+    antimatterFraction = Math.max(antimatterFraction, 0.0);
+
+    String antimatterFractionText = Double.toString(Math.abs(antimatterFraction));
+    int decimals = antimatterFractionText.length() - antimatterFractionText.indexOf('.') - 1;
+    antimatterFractionScale = (int)Math.pow(10, decimals);
+
+    keyDistribution = p.getProperty(KEY_DISTRIBUTION, KEY_DISTRIBUTION_DEFAULT);
+    if (keyDistribution.compareTo("uniform") != 0 && keyDistribution.compareTo("binomial") != 0 &&
+        keyDistribution.compareTo("zipfian") != 0 && keyDistribution.compareTo("latest") != 0) {
+      keyDistribution = "uniform";
+    }
+
+    String[] delays = p.getProperty(OPERATION_DELAY, OPERATION_DELAY_DEFAULT).split(",");
+    if (delays.length != 2) {
+      throw new WorkloadException("Operation delay must be in the format of min_delay,max_delay");
+    }
+    try {
+      delayMin = Integer.parseInt(delays[0].trim());
+      delayMax = Integer.parseInt(delays[1].trim());
+    } catch (NumberFormatException ex) {
+      throw new WorkloadException("Not a valid integer " + ex.toString());
+    }
+    if (delayMin < 0 || delayMax < 0) {
+      throw new WorkloadException("The delay times must be at least 0");
+    }
+    if (delayMin > delayMax) {
+      throw new WorkloadException("The minimum delay must be no greater than the maximum delay");
+    }
   }
 
   /**
@@ -459,41 +506,14 @@ public class CoreWorkloadWithAntimatter extends Workload {
     insertionRetryInterval = Integer.parseInt(p.getProperty(
         INSERTION_RETRY_INTERVAL, INSERTION_RETRY_INTERVAL_DEFAULT));
 
-    antimatterFraction = Double.parseDouble(p.getProperty(
-        ANTIMATTER_FRACTION, ANTIMATTER_FRACTION_DEFAULT));
-    if (antimatterFraction > 1.0) {
-      throw new WorkloadException(
-          "The antimatter fraction must be less than 1.0 (100%)");
-    }
-    antimatterFraction = Math.max(antimatterFraction, 0.0);
-
-    String antimatterFractionText = Double.toString(Math.abs(antimatterFraction));
-    int decimals = antimatterFractionText.length() - antimatterFractionText.indexOf('.') - 1;
-    antimatterFractionScale = (int)Math.pow(10, decimals);
-
-    String[] delays = p.getProperty(OPERATION_DELAY, OPERATION_DELAY_DEFAULT).split(",");
-    if (delays.length != 2) {
-      throw new WorkloadException("Operation delay must be in the format of min_delay,max_delay");
-    }
-    try {
-      delayMin = Integer.parseInt(delays[0].trim());
-      delayMax = Integer.parseInt(delays[1].trim());
-    } catch (NumberFormatException ex) {
-      throw new WorkloadException("Not a valid integer " + ex.toString());
-    }
-    if (delayMin < 0 || delayMax < 0) {
-      throw new WorkloadException("The delay times must be at least 0");
-    }
-    if (delayMin > delayMax) {
-      throw new WorkloadException("The minimum delay must be no greater than the maximum delay");
-    }
+    initCustom(p);
   }
 
   private boolean shouldAntiMatter() {
     if (antimatterFraction == 0) {
       return false;
     } else {
-      return (ThreadLocalRandom.current().nextInt(antimatterFractionScale) <=
+      return (ThreadLocalRandom.current().nextInt(antimatterFractionScale) <
           Math.round(antimatterFractionScale * antimatterFraction));
     }
   }
@@ -583,6 +603,22 @@ public class CoreWorkloadWithAntimatter extends Workload {
     return true;
   }
 
+  private int getKey() {
+    int bound = keysequence.lastValue().intValue() - (int)insertstart;
+    int lastNum = keysequence.lastValue().intValue();
+    int r;
+    if (keyDistribution.compareTo("binomial") == 0) {
+      r = new BinomialDistribution(bound, 0.5).sample();
+    } else if (keyDistribution.compareTo("zipfian") == 0) {
+      r = lastNum - new ZipfDistribution(bound + 1, 0.99).sample() + 1;
+    } else if (keyDistribution.compareTo("latest") == 0) {
+      r = new ZipfDistribution(bound + 1, 0.99).sample() - 1;
+    } else {
+      r = ThreadLocalRandom.current().nextInt(0, bound + 1);
+    }
+    return (int)insertstart + r;
+  }
+
   /**
    * Do one insert operation. Because it will be called concurrently from multiple client threads,
    * this function must be thread safe. However, avoid synchronized, or the threads will block waiting
@@ -599,7 +635,7 @@ public class CoreWorkloadWithAntimatter extends Workload {
     int keynum;
     if (keysequence.lastValue().intValue() > (int)insertstart && shouldAntiMatter()) {
       // Randomly pick a number which has been used before
-      keynum = ThreadLocalRandom.current().nextInt((int)insertstart, keysequence.lastValue().intValue() + 1);
+      keynum = getKey();
     } else {
       keynum = keysequence.nextValue().intValue();
     }
