@@ -610,9 +610,9 @@ public class CoreWorkloadWithAntimatter extends Workload {
     if (keyDistribution.compareTo("binomial") == 0) {
       r = new BinomialDistribution(bound, 0.5).sample();
     } else if (keyDistribution.compareTo("zipfian") == 0) {
-      r = lastNum - new ZipfDistribution(bound + 1, 0.99).sample() + 1;
-    } else if (keyDistribution.compareTo("latest") == 0) {
       r = new ZipfDistribution(bound + 1, 0.99).sample() - 1;
+    } else if (keyDistribution.compareTo("latest") == 0) {
+      r = lastNum - new ZipfDistribution(bound + 1, 0.99).sample() + 1;
     } else {
       r = ThreadLocalRandom.current().nextInt(0, bound + 1);
     }
