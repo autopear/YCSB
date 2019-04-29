@@ -121,6 +121,7 @@ LICENSE file.
     <module>accumulo1.8</module>
     <module>aerospike</module>
     <module>arangodb</module>
+    <module>asterixdb</module>
     <module>asynchbase</module>
     <module>azurecosmos</module>
     <module>azuretablestorage</module>
