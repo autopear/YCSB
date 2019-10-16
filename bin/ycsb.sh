@@ -79,13 +79,13 @@ fi
 # Determine YCSB command argument
 if [ "load" = "$1" ] ; then
   YCSB_COMMAND=-load
-  YCSB_CLASS=com.yahoo.ycsb.Client
+  YCSB_CLASS=site.ycsb.Client
 elif [ "run" = "$1" ] ; then
   YCSB_COMMAND=-t
-  YCSB_CLASS=com.yahoo.ycsb.Client
+  YCSB_CLASS=site.ycsb.Client
 elif [ "shell" = "$1" ] ; then
   YCSB_COMMAND=
-  YCSB_CLASS=com.yahoo.ycsb.CommandLine
+  YCSB_CLASS=site.ycsb.CommandLine
 else
   echo "[ERROR] Found unknown command '$1'"
   echo "[ERROR] Expected one of 'load', 'run', or 'shell'. Exiting."
@@ -202,7 +202,7 @@ else
     fi
 
     echo "[WARN] YCSB libraries not found.  Attempting to build..."
-    if mvn -Psource-run -pl com.yahoo.ycsb:"$MVN_PROJECT" -am package -DskipTests; then
+    if mvn -Psource-run -pl site.ycsb:"$MVN_PROJECT" -am package -DskipTests; then
       echo "[ERROR] Error trying to build project. Exiting."
       exit 1;
     fi
